@@ -23,6 +23,12 @@ function makeCamera(opts = {}) {
   const terrain = { heightAt: opts.heightAt || (() => 0), outerRing: 2400, hMin: 0 };
   const cam = new CameraController(view, { terrain, bounds: { w: 2048, h: 2048 }, free: !!opts.free });
   cam.c.limits = opts.limits ? 1 : 0;   // the test does not depend on the CAMERA_LIMITS value in Constants.js
+  // Exercise flight at a stable test pose; the game's starting zoom and angle are art direction.
+  cam.azimuth = -Math.PI / 2;
+  cam.pitch = 57 * Math.PI / 180;
+  cam.zoom = cam.zoomTarget = 1;
+  cam.lookAt(1024, 1024);
+  cam._apply();
   return { cam, liftMax: page.get('CAMERA_LIFT_MAX'), pitchMin: page.get('CAMERA_ORBIT_PITCH_MIN_DEG') };
 }
 

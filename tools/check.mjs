@@ -15,6 +15,7 @@
 //  the link between the claude/skills/ skills and CLAUDE.md.
 // ============================================================================
 import { spawnSync } from 'node:child_process';
+import { readdirSync } from 'node:fs';
 import path from 'node:path';
 import url from 'node:url';
 
@@ -26,7 +27,9 @@ const C = { r: '\x1b[0m', b: '\x1b[1m', dim: '\x1b[2m', red: '\x1b[31m', grn: '\
 const STEPS = [
   { flag: '--types', title: 'типы игры', run: () => spawnSync(TSC + ' -p tsconfig.json', { cwd: ROOT, shell: true, stdio: 'inherit' }) },
   { flag: '--types', title: 'типы редактора', run: () => spawnSync(TSC + ' -p _utils/editor/tsconfig.json', { cwd: ROOT, shell: true, stdio: 'inherit' }) },
-  { flag: '--tests', title: 'тесты', run: () => spawnSync(process.execPath, ['--test', 'tests/*.test.mjs'], { cwd: ROOT, stdio: 'inherit' }) },
+  { flag: '--tests', title: 'тесты', run: () => spawnSync(process.execPath,
+    ['--test', ...readdirSync(path.join(ROOT, 'tests')).filter(f => f.endsWith('.test.mjs')).map(f => 'tests/' + f)],
+    { cwd: ROOT, stdio: 'inherit' }) },
 ];
 
 const only = ['--types', '--tests'].filter(f => process.argv.includes(f));

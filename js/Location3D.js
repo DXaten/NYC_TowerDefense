@@ -255,5 +255,6 @@ Location3D.GHOST_ALPHA = 0.35;   // a hidden object in the editor (opts.showHidd
 Location3D.GROUNDS = [
     'assets/ground_texture_g.jpg',
     'assets/ground_texture_d.jpg',
-    'assets/ground_texture_s.jpg'
+    'assets/ground_texture_s.jpg',
+    'assets/ground_texture_city.png'
 ];

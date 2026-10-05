@@ -13,6 +13,7 @@ function hideLoader() {
     setTimeout(() => {
         const screen = document.getElementById('loading-screen');
         if (screen) screen.style.display = 'none';
+        YandexBridge.ready();
     }, 300);
 }
 
@@ -38,6 +39,8 @@ function startGame() {
     UI.init(canvas);
     window.app = { location, camera, game: null };
     const game = window.app.game = new Game(window.app);
+    YandexBridge.setGame(game);
+    YandexBridge.init();
     console.log('ArcEngine: локация запущена, объектов ' + location.objects.length + '.');
     updateLoadingProgress(70);
 

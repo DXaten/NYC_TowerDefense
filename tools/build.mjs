@@ -34,7 +34,7 @@ import { makeZip } from './zip.mjs';
 
 const execFileP = promisify(execFile);
 const ROOT = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '..');
-const ARCHIVE_NAME = 'arcengine';   // dist/<ARCHIVE_NAME>-<version>.zip
+const ARCHIVE_NAME = 'nyc-tower-defense';   // dist/<ARCHIVE_NAME>-<version>.zip
 
 // File names in the archive: ASCII only, no spaces — Cyrillic and spaces
 // in paths break unpacking and URLs on the hosting.
@@ -168,7 +168,9 @@ async function main() {
   for (const f of shipped) {
     const text = await fsp.readFile(path.join(ROOT, f), 'utf8');
     text.split('\n').forEach((ln, i) => {
-      if (/(?:src|href)\s*=\s*["']\/|url\(\s*['"]?\//.test(ln)) {
+      // Yandex Games requires its platform loader at /sdk.js; it is injected by the host.
+      if (/(?:src|href)\s*=\s*["']\/|url\(\s*['"]?\//.test(ln) &&
+          !/script\.src\s*=\s*['"]\/sdk\.js['"]/.test(ln)) {
         absHits.push(f + ':' + (i + 1));
       }
       for (const m of ln.matchAll(/https?:\/\/[^\s"'`)]+/g)) {
