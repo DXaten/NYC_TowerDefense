@@ -12,6 +12,7 @@ class TDCore {
         this.phase = 1;
         this.spawnTimer = 0;
         this.spawnCount = 0;
+        this.spawnGroupCount = 0;
         this.phaseSpawnCount = 0;
         this.nextEnemyId = 1;
         this.enemies = [];
@@ -117,19 +118,28 @@ class TDCore {
         const wave = this.level.waves[this.phase - 1];
         const type = wave.pattern[this.phaseSpawnCount % wave.pattern.length];
         const spec = TDCore.ENEMIES[type];
-        const point = this.level.spawns[this.spawnCount % this.level.spawns.length];
+        const spawnIndex = this.spawnGroupCount % this.level.spawns.length;
+        const point = this.level.spawns[spawnIndex];
         const entry = TDCore.projectOnRoute(this.route, point[0], point[1]);
         const scale = 1 + (this.level.difficulty - 1) * 0.17 + (this.phase - 1) * 0.12;
-        const enemy = {
-            id: this.nextEnemyId++, type, x: point[0], y: point[1],
-            hp: Math.round(spec.hp * scale), maxHp: Math.round(spec.hp * scale),
-            speed: spec.speed, slow: 0, marked: 0, entry,
-            routeDistance: entry.distance, mode: 'alley'
-        };
-        this.enemies.push(enemy);
-        this.spawnCount++;
+        const count = type === 'moth' ? (this.level.mothPack || 1) : 1;
+        for (let i = 0; i < count; i++) {
+            // Pack members begin in a short line on the rendered alley.
+            const offset = i * 0.08;
+            const enemy = {
+                id: this.nextEnemyId++, type, spawnIndex,
+                x: point[0] + (entry.x - point[0]) * offset,
+                y: point[1] + (entry.y - point[1]) * offset,
+                hp: Math.round(spec.hp * scale), maxHp: Math.round(spec.hp * scale),
+                speed: spec.speed, slow: 0, marked: 0, entry,
+                routeDistance: entry.distance, mode: 'alley'
+            };
+            this.enemies.push(enemy);
+            this.spawnCount++;
+            this.events.push({ kind: 'spawn', enemy });
+        }
+        this.spawnGroupCount++;
         this.phaseSpawnCount++;
-        this.events.push({ kind: 'spawn', enemy });
     }
 
     hurt(enemy, damage, attackType) {
@@ -260,17 +270,17 @@ class TDCore {
 
 TDCore.TOWERS = {
     lamp: { cost: 85, range: 210, damage: 36, interval: 0.7 },
-    coil: { cost: 120, range: 215, damage: 28, interval: 1, jumps: 4, jumpRange: 100 },
+    coil: { cost: 100, range: 215, damage: 36, interval: 1, jumps: 4, jumpRange: 100 },
     signal: { cost: 105, range: 215, damage: 20, interval: 1.6, slow: 3.5, mark: 4.5 }
 };
 TDCore.ENEMIES = {
     runner: { hp: 65, speed: 90, reward: 14, breach: 1 },
     wraith: { hp: 85, speed: 58, reward: 19, breach: 3 },
-    moth: { hp: 38, speed: 110, reward: 9, breach: 2 },
+    moth: { hp: 48, speed: 110, reward: 5, breach: 2 },
     porter: { hp: 235, speed: 44, reward: 34, breach: 3 }
 };
 TDCore.MATCHUPS = {
-    lamp: { runner: 1, wraith: 1, moth: 0.25, porter: 1.35 },
+    lamp: { runner: 1, wraith: 1, moth: 0.1, porter: 1.35 },
     coil: { runner: 1, wraith: 0.8, moth: 1.9, porter: 0.2 },
-    signal: { runner: 0.5, wraith: 2.5, moth: 0.35, porter: 0.2 }
+    signal: { runner: 0.5, wraith: 2.5, moth: 0.1, porter: 0.2 }
 };

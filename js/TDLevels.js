@@ -8,7 +8,7 @@ const TD_LEVELS = [
             { id: 't1', x: 165, y: 620 }, { id: 't2', x: 390, y: 645 }, { id: 't3', x: 460, y: 425 },
             { id: 't4', x: 670, y: 415 }, { id: 't5', x: 755, y: 205 }, { id: 't6', x: 965, y: 270 }
         ],
-        hp: 11, credits: 360, phaseBonus: 75, speed: 18, difficulty: 1,
+        hp: 11, credits: 360, phaseBonus: 75, mothPack: 1, speed: 18, difficulty: 1,
         waves: [
             { interval: 4.2, pattern: ['runner', 'moth', 'runner', 'moth'] },
             { interval: 3.8, pattern: ['moth', 'moth', 'wraith', 'porter'] },
@@ -24,7 +24,7 @@ const TD_LEVELS = [
             { id: 's4', x: 715, y: 575 }, { id: 's5', x: 740, y: 795 }, { id: 's6', x: 975, y: 575 },
             { id: 's7', x: 990, y: 355 }
         ],
-        hp: 11, credits: 370, phaseBonus: 75, speed: 19, difficulty: 2,
+        hp: 11, credits: 370, phaseBonus: 75, mothPack: 2, speed: 19, difficulty: 2,
         waves: [
             { interval: 3.6, pattern: ['runner', 'wraith', 'moth', 'moth'] },
             { interval: 3.2, pattern: ['porter', 'wraith', 'moth', 'moth', 'runner'] },
@@ -40,7 +40,7 @@ const TD_LEVELS = [
             { id: 'w4', x: 615, y: 415 }, { id: 'w5', x: 650, y: 205 }, { id: 'w6', x: 865, y: 420 },
             { id: 'w7', x: 880, y: 690 }, { id: 'w8', x: 1085, y: 280 }
         ],
-        hp: 10, credits: 400, phaseBonus: 75, speed: 20, difficulty: 3,
+        hp: 14, credits: 400, phaseBonus: 75, mothPack: 2, speed: 20, difficulty: 3,
         waves: [
             { interval: 3.2, pattern: ['wraith', 'moth', 'runner', 'moth'] },
             { interval: 2.9, pattern: ['porter', 'wraith', 'moth', 'porter', 'moth'] },

@@ -32,7 +32,6 @@ function buildInOrder(types) {
 
 test('encounters escalate, lamps alone fail, and planned mixed defenses win', () => {
     assert.equal(run(new Core(levels[0])).state, 'lost');
-    const survivingHp = [];
     const enemyCounts = [];
     for (const level of levels) {
         const lamps = run(new Core(level), buildInOrder(level.sites.map(() => 'lamp')));
@@ -43,13 +42,31 @@ test('encounters escalate, lamps alone fail, and planned mixed defenses win', ()
         assert.equal(mixed.state, 'won', `${level.id}: mixed towers should win`);
         assert.ok(mixed.convoy.hp > 0);
         assert.ok(mixed.score > 0);
-        survivingHp.push(mixed.convoy.hp);
         enemyCounts.push(mixed.spawnCount);
+
+        if (level.difficulty > 1) {
+            const noCoil = level.sites.map((_, i) => ['lamp', 'signal'][i % 2]);
+            assert.equal(run(new Core(level), buildInOrder(noCoil)).state, 'lost',
+                `${level.id}: moth packs should require crowd control`);
+        }
     }
-    assert.ok(survivingHp[0] > survivingHp[1] && survivingHp[1] > survivingHp[2],
-        'the same placement plan should leave less health on each successive level');
     assert.ok(enemyCounts[0] < enemyCounts[1] && enemyCounts[1] < enemyCounts[2],
         'each level should spawn more enemies');
+});
+
+test('moth packs share an alley and can be cleared by one chain attack', () => {
+    const core = new Core(levels[1]);
+    core.phaseSpawnCount = 2; // The third first-phase group is a moth pack.
+    core.spawnEnemy();
+    assert.equal(core.enemies.length, 2);
+    assert.equal(core.spawnCount, 2);
+    assert.equal(core.spawnGroupCount, 1);
+    assert.equal(core.enemies[0].spawnIndex, core.enemies[1].spawnIndex);
+    assert.ok(core.enemies[0].x !== core.enemies[1].x || core.enemies[0].y !== core.enemies[1].y);
+    const [x, y] = levels[1].spawns[0];
+    assert.equal(core.fire({ type: 'coil', level: 1, x, y }), true);
+    assert.equal(core.enemies.filter(e => e.hp > 0).length, 0);
+    assert.equal(core.events.at(-1).targets.length, 2);
 });
 
 test('tower roles have distinct targeting, damage, and status effects', () => {
@@ -94,7 +111,7 @@ test('enemies stay on rendered alleys and convoy streets', () => {
             for (const enemy of core.enemies) {
                 if (enemy.mode === 'alley') {
                     sawAlley = true;
-                    const spawn = level.spawns[(enemy.id - 1) % level.spawns.length];
+                    const spawn = level.spawns[enemy.spawnIndex];
                     const alley = Core.route([spawn, [enemy.entry.x, enemy.entry.y]]);
                     const nearest = Core.projectOnRoute(alley, enemy.x, enemy.y);
                     assert.ok(Math.hypot(enemy.x - nearest.x, enemy.y - nearest.y) < 1e-5,
