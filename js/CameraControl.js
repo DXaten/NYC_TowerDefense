@@ -99,12 +99,12 @@ class CameraController {
     home() {
         const c = this.c, D = Math.PI / 180;
         const small = IS_MOBILE && Math.max(window.innerWidth || 0, window.innerHeight || 0) < 1024;
-        this.zoomTarget = this._clampZoom(small ? c.zoomMobile : c.zoom);
-        this.zoom = this.zoomTarget;
         this._zoomAnchor = null;
         this.azimuth = c.azimuth * D;
         const f = this.followObj;
         this.lookAt(f ? f.x : (this.bounds ? this.bounds.w / 2 : 0), f ? f.y : (this.bounds ? this.bounds.h / 2 : 0));
+        this.zoomTarget = this._clampZoom(small ? c.zoomMobile : c.zoom);
+        this.zoom = this.zoomTarget;
         this.pitch = this._clampPitch(c.pitch * D);
         this._apply();
     }
@@ -187,9 +187,40 @@ class CameraController {
 
     _clampZoom(z) {
         const c = this.c;
-        const lo = this.free ? Math.min(c.zoomMin, 0.12) : c.zoomMin;
+        const lo = this.free ? Math.min(c.zoomMin, 0.12)
+            : Math.max(c.zoomMin, this._fixedIsometric() ? this._isometricSafeZoom() : 0);
         const hi = Math.max(lo, this.free ? Math.max(c.zoomMax, 6) : c.zoomMax);
         return Math.max(lo, Math.min(hi, Number.isFinite(z) ? z : 1));
+    }
+
+    _fixedIsometric() {
+        return this._limited() && this.c.orbit <= 0;
+    }
+
+    // When the game locks the angle, limit zoom-out instead of tilting the camera.
+    // Keep the upper frame corners inside Terrain3D's outer ground ring, including
+    // wide windows and a camera target raised above the lowest terrain point.
+    _isometricSafeZoom() {
+        const t = this.terrain, canvas = this.view.world.canvas;
+        if (!t || !(t.outerRing > 0) || !canvas) return 0;
+        const p = Math.max(1, Math.min(89, this.c.pitch)) * Math.PI / 180;
+        const sp = Math.sin(p), cp = Math.cos(p);
+        const tv = Math.tan(this.cam.fov / 2), th = tv * this.view.engine.getAspectRatio(this.cam);
+        const fall = sp - tv * cp;
+        if (fall <= 1e-4) return this.c.zoomMax;
+        const h = canvas.clientHeight || 600, reach = t.outerRing * 0.85;
+        const drop = Math.max(0, this.target.h - (Number.isFinite(t.hMin) ? t.hMin : 0));
+        // The far-corner displacement is (a·distance+b, c·distance+d).
+        // Solve its circle intersection once, rather than bisection every frame.
+        const a = sp / fall * (cp + tv * sp) - cp;
+        const b = drop / fall * (cp + tv * sp);
+        const c = sp / fall * th, d = drop / fall * th;
+        const u = a * a + c * c, v = 2 * (a * b + c * d);
+        const w = b * b + d * d - reach * reach;
+        if (w >= 0) return this.c.zoomMax;
+        const maxDistance = (-v + Math.sqrt(v * v - 4 * u * w)) / (2 * u);
+        const safeZoom = h / (2 * tv * maxDistance);
+        return Math.min(this.c.zoomMax, safeZoom);
     }
 
     // Game camera limits (CAMERA_LIMITS = 1): pitch, target inside the location, flight ceiling.
@@ -214,6 +245,7 @@ class CameraController {
         if (!this._limited()) return Math.max(F.min * D, Math.min(F.max * D, p));   // setTarget degenerates near ±90°
         const top = Math.max(1, Math.min(89, this.c.pitchMax)) * D;
         const floor = Math.min(top, Math.max(1, this.c.pitchMin) * D);
+        if (this._fixedIsometric()) return Math.max(floor, Math.min(top, p));
         return Math.max(this._edgePitchMin(floor, top), Math.min(top, p));
     }
 
@@ -499,6 +531,9 @@ class CameraController {
         dt = Math.min(0.1, Math.max(0, dt || 0));
         const c = this.c, f60 = dt * 60;
 
+        this.zoomTarget = this._clampZoom(this.zoomTarget);
+        this.zoom = this._clampZoom(this.zoom);
+
         if (this._keys.size) {
             const K = CameraController.FLY_KEYS;
             let fwd = 0, right = 0, up = 0;
@@ -522,7 +557,7 @@ class CameraController {
             this._clampTarget();
         }
         this.target.h = this._groundH(this.target.x, this.target.y) + this.lift;
-        this.pitch = this._clampPitch(this.pitch);   // zoom changes the frame's reach — and the pitch limit
+        this.pitch = this._clampPitch(this.pitch);
 
         const a = this._zoomAnchor;
         if (a) {

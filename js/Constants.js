@@ -2,7 +2,7 @@
 // the other modules read these globals. Edited by the editor (_utils/editor): the server
 // patches only lines of the form `const NAME = <number>;` — keep values as numeric
 // literals (colors — 0xRRGGBB); the editor won't touch a formula.
-const GAME_VERSION = '0.3.0'; // build version: ?v= on scripts (tools/build.mjs) and the archive name
+const GAME_VERSION = '0.3.1'; // build version: ?v= on scripts (tools/build.mjs) and the archive name
 
 // localStorage shim: in a sandbox iframe and when site data is blocked, direct access throws SecurityError.
 // All storage access goes through Store only.

@@ -349,6 +349,7 @@ class Game {
         const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) | 0; return (seed >>> 0) / 4294967296; };
         const palette = ['#b98d78', '#9b91a3', '#8da8ab', '#c09b7d', '#9a85a3'];
         const signs = ['#ffcf7b', '#76e7e8', '#f4a5d8'];
+        const windowPanes = { '#76e7e8': [], '#ffdd9a': [] };
         for (let x = 80; x < 1200; x += 115) for (let y = 80; y < 880; y += 110) {
             const cx = x + (random() - 0.5) * 22, cy = y + (random() - 0.5) * 22;
             const height = 78 + random() * 110;
@@ -365,14 +366,9 @@ class Game {
                     height * 0.48, cy + width / 2 + 2, '#d6b98d', 'prop',
                     { castShadow: false, ink: false, outline: false });
                 const glass = random() < 0.35 ? '#76e7e8' : '#ffdd9a';
-                const window = this.box('lit-window', 11, 20, 2, cx + offset, height * 0.57,
-                    cy + width / 2 + 3, glass,
-                    'prop', { castShadow: false, ink: false, outline: false });
-                window.material = this.material(glass, 'prop', true);
-                const sideGlass = this.box('side-window', 2, 20, 11,
-                    cx - width / 2 - 3, height * 0.57, cy + offset, glass,
-                    'prop', { castShadow: false, ink: false, outline: false });
-                sideGlass.material = this.material(glass, 'prop', true);
+                windowPanes[glass].push({ x: cx + offset, y: cy + width / 2 + 3, h: height * 0.57 });
+                windowPanes[glass].push({ x: cx - width / 2 - 3, y: cy + offset,
+                    h: height * 0.57, heading: Math.PI / 2 });
             }
             if (random() < 0.32) {
                 const sign = this.box('marquee', width * 0.75, 14, 3, cx, 30, cy + width / 2 + 4,
@@ -383,6 +379,16 @@ class Game {
                 this.box('rooftop-water-tank', 25, 19, 25, cx + width * 0.2, height + 19, cy,
                     '#617c89', 'prop', { ink: false, outline: false });
             }
+        }
+        for (const [glass, panes] of Object.entries(windowPanes)) {
+            if (!panes.length) continue;
+            const source = BABYLON.MeshBuilder.CreateBox('lit-window-batch',
+                { width: 11, height: 20, depth: 2 }, this.scene);
+            source.material = this.material(glass, 'prop', true);
+            const group = World3D.addInstances(this.view, source, 'prop', panes,
+                { castShadow: false, ink: false, outline: false });
+            if (group.ok) this.meshes.push(group.root);
+            else source.dispose();
         }
         for (const [spawn, entry] of alleys) {
             const mark = BABYLON.MeshBuilder.CreateCylinder('rift', { diameter: 38, height: 3, tessellation: 12 }, this.scene);

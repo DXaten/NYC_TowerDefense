@@ -110,6 +110,38 @@ test('CAMERA_LIMITS = 1: потолок полёта, цель внутри ло
   assert.ok(cam.pitch >= pitchMin * Math.PI / 180 - EPS);
 });
 
+test('фиксированная изометрия сохраняет наклон при колесе и жесте масштабирования', () => {
+  const { cam } = makeCamera({ limits: true });
+  cam.c.orbit = 0;
+  cam.follow({ x: 1024, y: 1024 });
+  cam.home();
+  const pitch = cam.pitch, startZoom = cam.zoom;
+  for (let i = 0; i < 20; i++) {
+    cam._onWheel({ deltaY: 100, preventDefault() {} });
+    cam.update(0.1);
+    assert.ok(Math.abs(cam.pitch - pitch) < EPS, 'колесо не меняет угол');
+  }
+  assert.ok(cam.zoom >= cam._isometricSafeZoom() - EPS, 'отдаление не открывает край земли');
+  const farZoom = cam.zoom;
+  for (let i = 0; i < 20; i++) {
+    cam._onWheel({ deltaY: -100, preventDefault() {} });
+    cam.update(0.1);
+  }
+  assert.ok(cam.zoom > farZoom && cam.zoom <= cam.c.zoomMax);
+  assert.ok(Math.abs(cam.pitch - pitch) < EPS, 'приближение не меняет угол');
+
+  cam.zoom = cam.zoomTarget = startZoom;
+  cam._pointers = new Map([
+    [1, { mode: 'touch', x: 0, y: 0 }],
+    [2, { mode: 'touch', x: 50, y: 0 }],
+  ]);
+  cam._pinch = { dist: 100, anchor: null };
+  cam._applyPinch();
+  cam.update(0.1);
+  assert.ok(cam.zoom < startZoom && cam.zoom >= cam._isometricSafeZoom() - EPS);
+  assert.ok(Math.abs(cam.pitch - pitch) < EPS, 'жест не меняет угол');
+});
+
 test('CAMERA_LIMITS = 0: игровая камера летает без потолка и границ и смотрит выше горизонта', () => {
   const { cam, liftMax } = makeCamera();
   key(cam, 'KeyE');
