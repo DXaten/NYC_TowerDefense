@@ -12,6 +12,7 @@ class TDCore {
         this.phase = 1;
         this.spawnTimer = 0;
         this.spawnCount = 0;
+        this.phaseSpawnCount = 0;
         this.nextEnemyId = 1;
         this.enemies = [];
         this.towers = [];
@@ -44,6 +45,21 @@ class TDCore {
             previous = end;
         }
         return { x: points[0][0], y: points[0][1] };
+    }
+
+    static projectOnRoute(route, x, y) {
+        let best = { x: route.points[0][0], y: route.points[0][1], distance: 0 };
+        let nearest = Infinity, previous = 0;
+        for (let i = 1; i < route.points.length; i++) {
+            const a = route.points[i - 1], b = route.points[i];
+            const dx = b[0] - a[0], dy = b[1] - a[1];
+            const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy)));
+            const px = a[0] + dx * t, py = a[1] + dy * t;
+            const d = Math.hypot(x - px, y - py);
+            if (d < nearest) { nearest = d; best = { x: px, y: py, distance: previous + Math.hypot(dx, dy) * t }; }
+            previous = route.lengths[i - 1];
+        }
+        return best;
     }
 
     start() {
@@ -98,26 +114,30 @@ class TDCore {
     static upgradeCost(tower) { return Math.round(TDCore.TOWERS[tower.type].cost * (0.65 + 0.3 * tower.level)); }
 
     spawnEnemy() {
-        const phase = this.phase;
-        const type = this.spawnCount % 10 === 9 && phase >= 2 ? 'brute'
-            : this.spawnCount % 4 === 3 ? 'runner' : 'shade';
+        const wave = this.level.waves[this.phase - 1];
+        const type = wave.pattern[this.phaseSpawnCount % wave.pattern.length];
         const spec = TDCore.ENEMIES[type];
         const point = this.level.spawns[this.spawnCount % this.level.spawns.length];
-        const scale = 1 + (this.level.difficulty - 1) * 0.22 + (phase - 1) * 0.18;
+        const entry = TDCore.projectOnRoute(this.route, point[0], point[1]);
+        const scale = 1 + (this.level.difficulty - 1) * 0.17 + (this.phase - 1) * 0.12;
         const enemy = {
             id: this.nextEnemyId++, type, x: point[0], y: point[1],
             hp: Math.round(spec.hp * scale), maxHp: Math.round(spec.hp * scale),
-            speed: spec.speed, slow: 0
+            speed: spec.speed, slow: 0, marked: 0, entry,
+            routeDistance: entry.distance, mode: 'alley'
         };
         this.enemies.push(enemy);
         this.spawnCount++;
+        this.phaseSpawnCount++;
         this.events.push({ kind: 'spawn', enemy });
     }
 
-    hurt(enemy, damage, slow = 0) {
+    hurt(enemy, damage, attackType) {
         if (enemy.hp <= 0) return;
-        enemy.hp = Math.max(0, enemy.hp - damage);
-        enemy.slow = Math.max(enemy.slow, slow);
+        const resistance = TDCore.MATCHUPS[attackType][enemy.type];
+        const multiplier = enemy.type === 'wraith' && enemy.marked <= 0 && attackType !== 'signal'
+            ? 0 : resistance;
+        enemy.hp = Math.max(0, enemy.hp - damage * multiplier);
         if (enemy.hp === 0) {
             const reward = TDCore.ENEMIES[enemy.type].reward;
             this.credits += reward;
@@ -129,6 +149,19 @@ class TDCore {
     fire(tower) {
         const spec = TDCore.TOWERS[tower.type];
         const range = spec.range * (1 + 0.12 * (tower.level - 1));
+        const damage = spec.damage * (1 + 0.5 * (tower.level - 1));
+        if (tower.type === 'signal') {
+            const targets = this.enemies.filter(e => e.hp > 0 && Math.hypot(e.x - tower.x, e.y - tower.y) <= range);
+            if (!targets.length) return false;
+            for (const enemy of targets) {
+                enemy.marked = Math.max(enemy.marked, spec.mark);
+                enemy.slow = Math.max(enemy.slow, spec.slow);
+                this.hurt(enemy, damage, 'signal');
+            }
+            this.events.push({ kind: 'shot', type: tower.type, x: tower.x, y: tower.y,
+                targets: targets.map(e => ({ x: e.x, y: e.y })) });
+            return true;
+        }
         let target = null;
         let best = Infinity;
         for (const enemy of this.enemies) {
@@ -138,14 +171,24 @@ class TDCore {
             if (distance < best) { best = distance; target = enemy; }
         }
         if (!target) return false;
-        const damage = spec.damage * (1 + 0.5 * (tower.level - 1));
         if (tower.type === 'coil') {
-            for (const enemy of this.enemies) {
-                if (enemy.hp > 0 && Math.hypot(enemy.x - target.x, enemy.y - target.y) <= spec.splash)
-                    this.hurt(enemy, damage);
+            const chain = [target];
+            while (chain.length < spec.jumps) {
+                const last = chain[chain.length - 1];
+                const next = this.enemies.filter(e => e.hp > 0 && !chain.includes(e) &&
+                    Math.hypot(e.x - last.x, e.y - last.y) <= spec.jumpRange)
+                    .sort((a, b) => Math.hypot(a.x - last.x, a.y - last.y) - Math.hypot(b.x - last.x, b.y - last.y))[0];
+                if (!next) break;
+                chain.push(next);
             }
-        } else this.hurt(target, damage, tower.type === 'signal' ? spec.slow : 0);
-        this.events.push({ kind: 'shot', type: tower.type, x: tower.x, y: tower.y, tx: target.x, ty: target.y });
+            chain.forEach((enemy, i) => this.hurt(enemy, damage * (1 - i * 0.12), 'coil'));
+            this.events.push({ kind: 'shot', type: tower.type, x: tower.x, y: tower.y,
+                targets: chain.map(e => ({ x: e.x, y: e.y })) });
+        } else {
+            this.hurt(target, damage, 'lamp');
+            this.events.push({ kind: 'shot', type: tower.type, x: tower.x, y: tower.y,
+                targets: [{ x: target.x, y: target.y }] });
+        }
         return true;
     }
 
@@ -156,12 +199,20 @@ class TDCore {
         this.time += dt;
         this.distance = Math.min(this.route.total, this.distance + this.level.speed * dt);
         Object.assign(this.convoy, TDCore.pointAt(this.route, this.distance));
-        this.phase = Math.min(3, Math.floor(this.distance / this.route.total * 3) + 1);
+        const phase = Math.min(3, Math.floor(this.distance / this.route.total * 3) + 1);
+        if (phase !== this.phase) {
+            this.phase = phase;
+            this.phaseSpawnCount = 0;
+            this.spawnTimer = 0;
+            const bonus = this.level.phaseBonus || 0;
+            this.credits += bonus;
+            this.events.push({ kind: 'phase', phase, bonus });
+        }
 
         this.spawnTimer -= dt;
         if (this.spawnTimer <= 0 && this.distance < this.route.total - 40) {
             this.spawnEnemy();
-            this.spawnTimer += Math.max(1.8, 4.5 - 0.5 * this.level.difficulty - 0.35 * (this.phase - 1));
+            this.spawnTimer += this.level.waves[this.phase - 1].interval;
         }
 
         for (const tower of this.towers) {
@@ -176,14 +227,24 @@ class TDCore {
             if (distance <= 28) {
                 enemy.hp = 0;
                 this.convoy.hp = Math.max(0, this.convoy.hp - TDCore.ENEMIES[enemy.type].breach);
-                this.events.push({ kind: 'breach', x: enemy.x, y: enemy.y, hp: this.convoy.hp });
+                this.events.push({ kind: 'breach', type: enemy.type, x: enemy.x, y: enemy.y, hp: this.convoy.hp });
                 continue;
             }
-            const factor = enemy.slow > 0 ? 0.55 : 1;
-            const step = Math.min(distance, enemy.speed * factor * dt);
-            enemy.x += dx / distance * step;
-            enemy.y += dy / distance * step;
+            const factor = enemy.slow > 0 ? 0.48 : 1;
+            const step = enemy.speed * factor * dt;
+            if (enemy.mode === 'alley') {
+                const ex = enemy.entry.x - enemy.x, ey = enemy.entry.y - enemy.y;
+                const remaining = Math.hypot(ex, ey);
+                if (remaining <= step) {
+                    enemy.x = enemy.entry.x; enemy.y = enemy.entry.y; enemy.mode = 'route';
+                } else { enemy.x += ex / remaining * step; enemy.y += ey / remaining * step; }
+            } else {
+                const delta = this.distance - enemy.routeDistance;
+                enemy.routeDistance += Math.sign(delta) * Math.min(Math.abs(delta), step);
+                Object.assign(enemy, TDCore.pointAt(this.route, enemy.routeDistance));
+            }
             enemy.slow = Math.max(0, enemy.slow - dt);
+            enemy.marked = Math.max(0, enemy.marked - dt);
         }
         this.enemies = this.enemies.filter(e => e.hp > 0);
         if (this.convoy.hp <= 0) {
@@ -198,12 +259,18 @@ class TDCore {
 }
 
 TDCore.TOWERS = {
-    lamp: { cost: 80, range: 190, damage: 28, interval: 0.8 },
-    coil: { cost: 130, range: 150, damage: 18, interval: 1.5, splash: 78 },
-    signal: { cost: 105, range: 180, damage: 10, interval: 0.9, slow: 2.2 }
+    lamp: { cost: 85, range: 210, damage: 36, interval: 0.7 },
+    coil: { cost: 120, range: 215, damage: 28, interval: 1, jumps: 4, jumpRange: 100 },
+    signal: { cost: 105, range: 215, damage: 20, interval: 1.6, slow: 3.5, mark: 4.5 }
 };
 TDCore.ENEMIES = {
-    shade: { hp: 65, speed: 48, reward: 12, breach: 1 },
-    runner: { hp: 48, speed: 78, reward: 15, breach: 1 },
-    brute: { hp: 220, speed: 34, reward: 35, breach: 3 }
+    runner: { hp: 65, speed: 90, reward: 14, breach: 1 },
+    wraith: { hp: 85, speed: 58, reward: 19, breach: 3 },
+    moth: { hp: 38, speed: 110, reward: 9, breach: 2 },
+    porter: { hp: 235, speed: 44, reward: 34, breach: 3 }
+};
+TDCore.MATCHUPS = {
+    lamp: { runner: 1, wraith: 1, moth: 0.25, porter: 1.35 },
+    coil: { runner: 1, wraith: 0.8, moth: 1.9, porter: 0.2 },
+    signal: { runner: 0.5, wraith: 2.5, moth: 0.35, porter: 0.2 }
 };

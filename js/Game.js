@@ -17,6 +17,8 @@ class Game {
         this.progress = Store.getJSON('nyc_td_progress_v1', { unlocked: 0, best: [0, 0, 0] });
         this.pointerStart = null;
         this.tip = '';
+        this.phaseTip = '';
+        this.phaseTipTime = 0;
         this.uiTimer = 0;
         this.prepared = false;
         this.menuAction = () => this.prepare();
@@ -41,7 +43,12 @@ class Game {
             if (button) button.onClick(() => {
                 this.selectedType = type;
                 this.selectedSite = null;
-                this.tip = this.tr('Выберите светящуюся точку на улице', 'Tap a glowing rooftop site');
+                const hints = {
+                    lamp: this.tr('Лампа прожигает броню носильщиков', 'Lamp burns through porter armor'),
+                    coil: this.tr('Катушка цепной молнией бьёт стаи', 'Coil chains lightning through swarms'),
+                    signal: this.tr('Сигнал раскрывает духов и тормозит толпу', 'Signal reveals spirits and slows crowds')
+                };
+                this.tip = hints[type];
                 this.refreshUI();
             });
         }
@@ -149,9 +156,13 @@ class Game {
         this.selectedSite = null;
         this.selectedType = 'lamp';
         this.prepared = false;
+        this.phaseTip = '';
+        this.phaseTipTime = 0;
         this.drawDistrict();
-        this.app.camera.follow(this.core.convoy);
-        this.app.camera.lookAt(this.core.convoy.x, this.core.convoy.y);
+        this.cameraAnchor = { x: 0, y: 0 };
+        this.updateCameraAnchor();
+        this.app.camera.follow(this.cameraAnchor);
+        this.app.camera.home();
         this.showReadyMenu();
         this.refreshUI();
         this.syncGameplay();
@@ -161,8 +172,8 @@ class Game {
         if (!this.core) return;
         this.showMenu(
             this.tr('НОЧНОЙ КАРАВАН', 'NIGHT CARAVAN'),
-            this.tr('Доведите караван через район.\nСтавьте башни на светящихся точках.\nСначала можно подготовить оборону.',
-                'Escort the convoy across town.\nBuild on glowing rooftop sites.\nPrepare defenses before departure.'),
+            this.tr('Доведите караван через район.\nЛампа — броня; катушка — стаи.\nДухов сначала раскрывает сигнал.\nНовые фазы дают +75 монет.',
+                'Escort the convoy across town.\nLamp: armor; coil: swarms.\nSignal must reveal spirits first.\nEach new phase grants 75 coins.'),
             this.tr('Подготовить', 'Prepare'), () => this.prepare()
         );
     }
@@ -192,8 +203,8 @@ class Game {
             won ? this.tr('Маршрут пройден', 'Route cleared') : this.tr('Караван потерян', 'Convoy lost'),
             won ? this.tr('Очки: ' + this.core.score + '\nОсталось здоровья: ' + this.core.convoy.hp,
                 'Score: ' + this.core.score + '\nHealth left: ' + this.core.convoy.hp)
-                : this.tr('Попробуйте иной порядок башен.\nКатушка бьёт по группе, сигнал замедляет.',
-                    'Try a different tower order.\nCoil hits groups; signal slows them.'),
+                : this.tr('Лампа ломает броню; катушка бьёт стаю.\nДухов сначала раскройте сигналом.',
+                    'Lamp breaks armor; coil hits swarms.\nReveal spirits with signal first.'),
             won ? (this.levelIndex + 1 < TD_LEVELS.length ? this.tr('Следующий район', 'Next district') : this.tr('Начать заново', 'Play again'))
                 : this.tr('Повторить', 'Retry'),
             () => this.loadLevel(next)
@@ -214,9 +225,20 @@ class Game {
         this.write('hud_health', this.tr('Караван: ', 'Convoy: ') + c.convoy.hp + '/' + c.convoy.maxHp);
         this.write('hud_phase', this.tr('Угроза ', 'Threat ') + c.phase + '/3');
         this.write('hud_tip', this.tip || this.tr('Выберите башню и точку на улице', 'Choose a tower and a street site'));
-        this.write('lamp', this.tr('Лампа · 80', 'Lamp · 80'));
-        this.write('coil', this.tr('Катушка · 130', 'Coil · 130'));
-        this.write('signal', this.tr('Сигнал · 105', 'Signal · 105'));
+        const towerButtons = {
+            lamp: { text: this.tr('ЛАМПА\nБроня', 'LAMP\nArmor'), color: '#ffd479', fill: '#664630' },
+            coil: { text: this.tr('КАТУШКА\nСтая', 'COIL\nSwarm'), color: '#66e6ed', fill: '#254d5b' },
+            signal: { text: this.tr('СИГНАЛ\nДухи', 'SIGNAL\nSpirits'), color: '#e9aff5', fill: '#503b62' }
+        };
+        for (const [type, style] of Object.entries(towerButtons)) {
+            this.write(type, style.text + ' · ' + TDCore.TOWERS[type].cost);
+            const button = this.ui(type);
+            if (button) {
+                button.def.fill = this.selectedType === type ? style.fill : '#263544';
+                button.def.border = style.color;
+                button.apply();
+            }
+        }
         this.write('pause', c.state === 'ready' ? this.tr('В путь', 'Go')
             : c.state === 'paused' ? this.tr('Продолжить', 'Resume') : this.tr('Пауза', 'Pause'));
         this.write('sell', this.tr('Продать', 'Sell'));
@@ -226,12 +248,13 @@ class Game {
         if (progress) progress.setValue(c.distance / c.route.total);
     }
 
-    material(hex, kind = 'prop') {
-        const key = kind + hex;
+    material(hex, kind = 'prop', glow = false) {
+        const key = kind + hex + glow;
         if (!this.materials.has(key)) {
             const mat = new BABYLON.StandardMaterial('td-' + key, this.scene);
             mat.diffuseColor = BABYLON.Color3.FromHexString(hex);
             mat.specularColor = BABYLON.Color3.Black();
+            if (glow) mat.emissiveColor = BABYLON.Color3.FromHexString(hex).scale(0.62);
             this.materials.set(key, mat);
         }
         return this.materials.get(key);
@@ -256,9 +279,48 @@ class Game {
         return this.track(mesh, kind, opts);
     }
 
+    childBox(parent, name, w, h, d, x, y, z, hex, glow = false) {
+        const mesh = BABYLON.MeshBuilder.CreateBox(name, { width: w, height: h, depth: d }, this.scene);
+        mesh.parent = parent;
+        mesh.position.set(x, y, z);
+        mesh.material = this.material(hex, 'actor', glow);
+        return mesh;
+    }
+
+    childCylinder(parent, name, diameter, height, x, y, z, hex, glow = false, tessellation = 8) {
+        const mesh = BABYLON.MeshBuilder.CreateCylinder(name, { diameter, height, tessellation }, this.scene);
+        mesh.parent = parent;
+        mesh.position.set(x, y, z);
+        mesh.material = this.material(hex, 'actor', glow);
+        return mesh;
+    }
+
+    nearSegment(x, y, a, b, limit) {
+        const dx = b[0] - a[0], dy = b[1] - a[1];
+        const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy)));
+        return Math.hypot(x - (a[0] + dx * t), y - (a[1] + dy * t)) < limit;
+    }
+
+    // Buildings use a conservative bounding circle. The clearances include the road,
+    // the footprint and the porter's wide shield, so no enemy can clip a facade.
+    clearBuildingSite(x, y, width, alleys) {
+        const radius = width * Math.SQRT2 / 2;
+        return !this.nearRoute(x, y, radius + 63) &&
+            !alleys.some(([a, b]) => this.nearSegment(x, y, a, b, radius + 54)) &&
+            !this.core.level.sites.some(s => Math.hypot(s.x - x, s.y - y) < radius + 43);
+    }
+
+    roadMark(x, y, horizontal, color) {
+        this.box('lane-mark', horizontal ? 29 : 3, 1, horizontal ? 3 : 29,
+            x, 4.25, y, color, 'prop', { castShadow: false, ink: false, outline: false });
+    }
+
     drawDistrict() {
         const level = this.core.level;
-        const roadColor = ['#3a3545', '#303c4d', '#35404b'][this.levelIndex];
+        const roadColor = ['#6b8291', '#64808a', '#718998'][this.levelIndex];
+        this.box('district-pavement', 1196, 2, 896, 600, 0, 450,
+            ['#576a79', '#526e77', '#596c79'][this.levelIndex], 'prop',
+            { castShadow: false, ink: false, outline: false });
         for (let i = 1; i < level.path.length; i++) {
             const a = level.path[i - 1], b = level.path[i];
             const horizontal = a[1] === b[1];
@@ -266,33 +328,84 @@ class Game {
             const d = horizontal ? 92 : Math.abs(b[1] - a[1]) + 92;
             this.box('street', w, 3, d, (a[0] + b[0]) / 2, 2, (a[1] + b[1]) / 2,
                 roadColor, 'prop', { castShadow: false, ink: false, outline: false });
+            const distance = Math.hypot(b[0] - a[0], b[1] - a[1]);
+            const count = Math.max(0, Math.floor((distance - 40) / 74));
+            for (let n = 1; n <= count; n++) {
+                const t = n / (count + 1);
+                this.roadMark(a[0] + (b[0] - a[0]) * t,
+                    a[1] + (b[1] - a[1]) * t, horizontal, '#e0be7f');
+            }
         }
+        const alleys = level.spawns.map(spawn => {
+            const entry = TDCore.projectOnRoute(this.core.route, spawn[0], spawn[1]);
+            const length = Math.hypot(entry.x - spawn[0], entry.y - spawn[1]);
+            const road = this.box('spawn-alley', length + 42, 3, 42,
+                (spawn[0] + entry.x) / 2, 3, (spawn[1] + entry.y) / 2,
+                '#847e8e', 'prop', { castShadow: false, ink: false, outline: false });
+            road.rotation.y = -Math.atan2(entry.y - spawn[1], entry.x - spawn[0]);
+            return [spawn, [entry.x, entry.y]];
+        });
         let seed = 991 + this.levelIndex * 101;
         const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) | 0; return (seed >>> 0) / 4294967296; };
-        const palette = ['#363343', '#444050', '#48404a', '#4a3b3c', '#394451'];
+        const palette = ['#b98d78', '#9b91a3', '#8da8ab', '#c09b7d', '#9a85a3'];
+        const signs = ['#ffcf7b', '#76e7e8', '#f4a5d8'];
         for (let x = 80; x < 1200; x += 115) for (let y = 80; y < 880; y += 110) {
             const cx = x + (random() - 0.5) * 22, cy = y + (random() - 0.5) * 22;
-            if (this.nearRoute(cx, cy, 84) || level.sites.some(s => Math.hypot(s.x - cx, s.y - cy) < 52)) continue;
-            const height = 58 + random() * 125;
-            const width = 55 + random() * 30;
+            const height = 78 + random() * 110;
+            const width = 53 + random() * 26;
+            if (!this.clearBuildingSite(cx, cy, width, alleys)) continue;
             this.box('brownstone', width, height, width, cx, height / 2, cy,
                 palette[Math.floor(random() * palette.length)], 'prop', { ink: false, outline: false });
-            if (random() < 0.23) this.box('lit-window', width * 0.55, 5, 3, cx, height * 0.65, cy - width / 2 - 2,
-                random() < 0.5 ? '#b48958' : '#688c9a', 'prop', { castShadow: false, ink: false, outline: false });
+            this.box('roof-cornice', width + 7, 8, width + 7, cx, height - 3, cy,
+                '#3f5665', 'prop', { castShadow: false, ink: false, outline: false });
+            this.box('art-deco-crown', width * 0.7, 10, width * 0.7, cx, height + 5, cy,
+                '#d5b993', 'prop', { castShadow: false, ink: false, outline: false });
+            for (const offset of [-width * 0.22, width * 0.22]) {
+                this.box('facade-pilaster', 5, height * 0.69, 3, cx + offset * 1.7,
+                    height * 0.48, cy + width / 2 + 2, '#d6b98d', 'prop',
+                    { castShadow: false, ink: false, outline: false });
+                const glass = random() < 0.35 ? '#76e7e8' : '#ffdd9a';
+                const window = this.box('lit-window', 11, 20, 2, cx + offset, height * 0.57,
+                    cy + width / 2 + 3, glass,
+                    'prop', { castShadow: false, ink: false, outline: false });
+                window.material = this.material(glass, 'prop', true);
+                const sideGlass = this.box('side-window', 2, 20, 11,
+                    cx - width / 2 - 3, height * 0.57, cy + offset, glass,
+                    'prop', { castShadow: false, ink: false, outline: false });
+                sideGlass.material = this.material(glass, 'prop', true);
+            }
+            if (random() < 0.32) {
+                const sign = this.box('marquee', width * 0.75, 14, 3, cx, 30, cy + width / 2 + 4,
+                    '#f6bc68', 'prop', { castShadow: false, ink: false, outline: false });
+                sign.material = this.material(signs[Math.floor(random() * signs.length)], 'prop', true);
+            }
+            if (random() < 0.26) {
+                this.box('rooftop-water-tank', 25, 19, 25, cx + width * 0.2, height + 19, cy,
+                    '#617c89', 'prop', { ink: false, outline: false });
+            }
         }
-        for (const spawn of level.spawns) {
+        for (const [spawn, entry] of alleys) {
             const mark = BABYLON.MeshBuilder.CreateCylinder('rift', { diameter: 38, height: 3, tessellation: 12 }, this.scene);
             mark.position.set(spawn[0], 5, spawn[1]);
-            mark.material = this.material('#745780');
+            mark.material = this.material('#db71c5', 'prop', true);
             this.track(mark, 'prop', { castShadow: false, ink: false, outline: false });
+            const dx = entry[0] - spawn[0], dy = entry[1] - spawn[1];
+            const length = Math.hypot(dx, dy) || 1, nx = -dy / length, ny = dx / length;
+            for (const side of [-1, 1]) {
+                this.box('rift-gate-post', 9, 68, 9, spawn[0] + nx * side * 58, 39,
+                    spawn[1] + ny * side * 58, '#b49bc1', 'prop', { ink: false, outline: false });
+            }
+            const lintel = this.box('rift-gate-lintel', 126, 10, 10, spawn[0], 78, spawn[1],
+                '#e4a4d4', 'prop', { castShadow: false, ink: false, outline: false });
+            lintel.rotation.y = -Math.atan2(dy, dx) - Math.PI / 2;
         }
         for (const site of level.sites) {
             const mark = BABYLON.MeshBuilder.CreateCylinder('tower-site', { diameter: 42, height: 5, tessellation: 8 }, this.scene);
             mark.position.set(site.x, 7, site.y);
-            mark.material = this.material('#c3a86b');
+            mark.material = this.material('#ffd978', 'prop', true);
             this.track(mark, 'prop', { castShadow: false, ink: false, outline: false });
         }
-        const wagon = this.box('convoy', 58, 18, 32, this.core.convoy.x, 17, this.core.convoy.y, '#9d7251', 'actor');
+        const wagon = this.box('convoy', 58, 18, 32, this.core.convoy.x, 17, this.core.convoy.y, '#c18862', 'actor');
         const roof = BABYLON.MeshBuilder.CreateBox('convoy-roof', { width: 35, height: 18, depth: 30 }, this.scene);
         roof.parent = wagon;
         roof.position.set(-5, 17, 0);
@@ -300,43 +413,162 @@ class Game {
         const lamp = BABYLON.MeshBuilder.CreateSphere('convoy-lamp', { diameter: 13, segments: 8 }, this.scene);
         lamp.parent = wagon;
         lamp.position.set(31, 8, 0);
-        lamp.material = this.material('#f1d18b', 'actor');
+        lamp.material = this.material('#ffe29b', 'actor', true);
         this.convoyMesh = wagon;
     }
 
     nearRoute(x, y, limit) {
         const path = this.core.level.path;
-        for (let i = 1; i < path.length; i++) {
-            const a = path[i - 1], b = path[i];
-            const dx = b[0] - a[0], dy = b[1] - a[1];
-            const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy)));
-            if (Math.hypot(x - (a[0] + t * dx), y - (a[1] + t * dy)) < limit) return true;
-        }
-        return false;
+        return path.slice(1).some((b, i) => this.nearSegment(x, y, path[i], b, limit));
+    }
+
+    updateCameraAnchor() {
+        if (!this.cameraAnchor) return;
+        // Keep the action near the edge of the frame while showing the district ahead.
+        const convoy = this.core.convoy;
+        this.cameraAnchor.x = convoy.x * 0.72 + LOCATION_WIDTH * 0.5 * 0.28;
+        this.cameraAnchor.y = convoy.y * 0.72 + LOCATION_HEIGHT * 0.5 * 0.28;
     }
 
     createTowerMesh(tower) {
         if (!tower) return;
-        const colors = { lamp: '#e8c678', coil: '#63c5d7', signal: '#b58bd0' };
-        const base = BABYLON.MeshBuilder.CreateCylinder('tower-' + tower.type, { diameter: 27, height: 37, tessellation: 8 }, this.scene);
-        base.position.set(tower.x, 26, tower.y);
-        base.material = this.material(colors[tower.type], 'actor');
-        const top = BABYLON.MeshBuilder.CreateSphere('tower-light', { diameter: tower.type === 'coil' ? 27 : 20, segments: 8 }, this.scene);
-        top.parent = base;
-        top.position.y = 22;
-        top.material = this.material(colors[tower.type], 'actor');
+        const colors = { lamp: '#ffd875', coil: '#59dce9', signal: '#db96eb' };
+        const base = BABYLON.MeshBuilder.CreateCylinder('tower-' + tower.type,
+            { diameter: 35, height: 17, tessellation: 8 }, this.scene);
+        base.position.set(tower.x, 18, tower.y);
+        base.material = this.material('#4a5263', 'actor');
+        if (tower.type === 'lamp') {
+            this.childCylinder(base, 'lamp-post', 9, 34, 0, 24, 0, '#b78854');
+            this.childCylinder(base, 'lamp-lantern', 23, 22, 0, 45, 0, '#ffd875', true, 6);
+            this.childCylinder(base, 'lamp-cap', 30, 5, 0, 58, 0, '#5a4150');
+        } else if (tower.type === 'coil') {
+            this.childCylinder(base, 'coil-core', 14, 37, 0, 27, 0, '#354e69');
+            for (const y of [19, 34, 48]) {
+                const ring = BABYLON.MeshBuilder.CreateTorus('coil-ring', { diameter: 32, thickness: 5, tessellation: 8 }, this.scene);
+                ring.parent = base; ring.position.y = y;
+                ring.material = this.material('#59dce9', 'actor', true);
+            }
+        } else {
+            this.childCylinder(base, 'signal-mast', 8, 32, 0, 22, 0, '#9176ac');
+            const dish = BABYLON.MeshBuilder.CreateCylinder('signal-dish',
+                { diameterTop: 40, diameterBottom: 16, height: 12, tessellation: 8 }, this.scene);
+            dish.parent = base; dish.position.y = 45;
+            dish.material = this.material('#b987df', 'actor');
+            this.childCylinder(base, 'signal-beacon', 12, 12, 0, 54, 0, '#f4b4ff', true);
+        }
         this.track(base, 'actor');
         this.towerMeshes.set(tower.siteId, base);
     }
 
     createEnemyMesh(enemy) {
-        const colors = { shade: '#9d82b1', runner: '#d49c6b', brute: '#8f5e72' };
-        const size = enemy.type === 'brute' ? 31 : enemy.type === 'runner' ? 18 : 23;
-        const mesh = BABYLON.MeshBuilder.CreateSphere('enemy-' + enemy.id, { diameter: size, segments: 8 }, this.scene);
-        mesh.position.set(enemy.x, 17, enemy.y);
-        mesh.material = this.material(colors[enemy.type], 'actor');
+        const type = enemy.type;
+        const colors = { runner: '#71545c', wraith: '#965e80', moth: '#e49d52', porter: '#8294a0' };
+        const mesh = BABYLON.MeshBuilder.CreateBox('enemy-' + type + '-' + enemy.id,
+            { width: type === 'porter' ? 34 : 22, height: type === 'porter' ? 29 : 20,
+                depth: type === 'porter' ? 28 : 18 }, this.scene);
+        const baseY = type === 'porter' ? 23 : type === 'moth' ? 17 : 18;
+        mesh.position.set(enemy.x, baseY, enemy.y);
+        mesh.metadata = { baseY };
+        mesh.material = this.material(colors[type], 'actor');
+        const orb = (name, diameter, x, y, z, color, glow = false) => {
+            const part = BABYLON.MeshBuilder.CreateSphere(name, { diameter, segments: 6 }, this.scene);
+            part.parent = mesh; part.position.set(x, y, z);
+            part.material = this.material(color, 'actor', glow);
+            return part;
+        };
+        if (type === 'runner') {
+            this.childCylinder(mesh, 'bell-head', 28, 21, 0, 23, 0, '#bc9256', false, 8);
+            orb('bell-eye', 9, 0, 23, -15, '#ff9e43', true);
+            this.childBox(mesh, 'satchel', 13, 12, 9, 15, -1, 0, '#9c6f4f');
+            this.childBox(mesh, 'ribbon-left', 5, 17, 3, -16, 7, 0, '#5ae4e8', true);
+            this.childBox(mesh, 'ribbon-right', 5, 17, 3, 16, 7, 0, '#5ae4e8', true);
+            this.childBox(mesh, 'runner-boot-left', 8, 8, 12, -9, -11, -2, '#493b4d');
+            this.childBox(mesh, 'runner-boot-right', 8, 8, 12, 9, -11, -2, '#493b4d');
+        } else if (type === 'wraith') {
+            orb('ticket-mask', 25, 0, 21, 0, '#ead9be');
+            this.childCylinder(mesh, 'conductor-cap', 28, 7, 0, 36, 0, '#743a51');
+            this.childBox(mesh, 'ticket-left', 11, 15, 2, -19, 7, 0, '#fff0be', true);
+            this.childBox(mesh, 'ticket-right', 11, 15, 2, 19, 7, 0, '#fff0be', true);
+            orb('wraith-eye', 5, 0, 22, -13, '#ffbf7a', true);
+        } else if (type === 'moth') {
+            orb('marquee-bulb', 28, 0, 9, 0, '#ffb142', true);
+            const left = this.childBox(mesh, 'moth-wing-left', 22, 3, 30, -18, 12, 0, '#52dce5', true);
+            const right = this.childBox(mesh, 'moth-wing-right', 22, 3, 30, 18, 12, 0, '#e77fcf', true);
+            left.rotation.z = -0.35; right.rotation.z = 0.35;
+            mesh.metadata.wings = [left, right];
+            orb('moth-eye', 7, 0, 1, -12, '#fff3af', true);
+        } else {
+            this.childBox(mesh, 'porter-shoulder-left', 16, 21, 28, -25, 7, 0, '#68747e');
+            this.childBox(mesh, 'porter-shoulder-right', 16, 21, 28, 25, 7, 0, '#68747e');
+            this.childBox(mesh, 'porter-gate-shield', 10, 39, 34, -37, 3, -4, '#8b654d');
+            this.childCylinder(mesh, 'porter-head', 19, 20, 0, 27, 0, '#6b6e77');
+            this.childBox(mesh, 'porter-eye', 12, 11, 3, 0, 27, -11, '#ec7bdb', true);
+            this.childBox(mesh, 'porter-rune', 5, 23, 2, 10, 0, -15, '#57dbdf', true);
+        }
+        const barY = type === 'porter' ? 55 : 47;
+        this.childBox(mesh, 'enemy-health-back', 33, 5, 3, 0, barY, 0, '#172534');
+        mesh.metadata.healthFill = this.childBox(mesh, 'enemy-health', 29, 3, 4,
+            0, barY, -1, type === 'wraith' ? '#f0b8e5' : '#87eed1', true);
         this.track(mesh, 'actor', { ink: false, outline: false });
         this.enemyMeshes.set(enemy.id, mesh);
+    }
+
+    addEffect(mesh, life, spread = 0) {
+        mesh.isPickable = false;
+        this.beams.push({ mesh, life, maxLife: life, spread });
+    }
+
+    hitSpark(x, y, color, diameter = 14) {
+        const spark = BABYLON.MeshBuilder.CreateSphere('hit-spark', { diameter, segments: 6 }, this.scene);
+        spark.position.set(x, 29, y);
+        spark.material = this.material(color, 'actor', true);
+        this.addEffect(spark, 0.22, 0.9);
+    }
+
+    fireEffect(event) {
+        const targets = event.targets || [];
+        if (!targets.length) return;
+        if (event.type === 'signal') {
+            const wave = BABYLON.MeshBuilder.CreateTorus('signal-wave',
+                { diameter: 42, thickness: 5, tessellation: 24 }, this.scene);
+            wave.position.set(event.x, 10, event.y);
+            wave.material = this.material('#e8adfa', 'actor', true);
+            this.addEffect(wave, 0.5, 5.8);
+            for (const target of targets) {
+                const seal = BABYLON.MeshBuilder.CreateTorus('spirit-seal',
+                    { diameter: 25, thickness: 3, tessellation: 12 }, this.scene);
+                seal.position.set(target.x, 9, target.y);
+                seal.material = this.material('#e8adfa', 'actor', true);
+                this.addEffect(seal, 0.45, 1.7);
+            }
+            return;
+        }
+        let from = new BABYLON.Vector3(event.x, 64, event.y);
+        for (const target of targets) {
+            const to = new BABYLON.Vector3(target.x, 29, target.y);
+            if (event.type === 'lamp') {
+                const beam = BABYLON.MeshBuilder.CreateTube('lamp-beam',
+                    { path: [from, to], radius: 4, tessellation: 6 }, this.scene);
+                beam.material = this.material('#ffce73', 'actor', true);
+                this.addEffect(beam, 0.16);
+                this.hitSpark(target.x, target.y, '#ffdf8f', 17);
+            } else {
+                const delta = to.subtract(from), side = new BABYLON.Vector3(-delta.z, 0, delta.x).normalize();
+                const wobble = (this.core.time * 19 + target.x * 0.13 + target.y * 0.07);
+                const path = [from];
+                for (let i = 1; i < 5; i++) {
+                    const t = i / 5;
+                    path.push(from.add(delta.scale(t)).add(side.scale(Math.sin(wobble + i * 3.2) * 11)));
+                }
+                path.push(to);
+                const arc = BABYLON.MeshBuilder.CreateTube('coil-lightning',
+                    { path, radius: 2.5, tessellation: 5 }, this.scene);
+                arc.material = this.material('#6debf4', 'actor', true);
+                this.addEffect(arc, 0.24);
+                this.hitSpark(target.x, target.y, '#8df5ff', 11);
+            }
+            from = to;
+        }
     }
 
     syncMeshes() {
@@ -350,20 +582,28 @@ class Game {
             alive.add(enemy.id);
             if (!this.enemyMeshes.has(enemy.id)) this.createEnemyMesh(enemy);
             const mesh = this.enemyMeshes.get(enemy.id);
-            mesh.position.set(enemy.x, enemy.type === 'brute' ? 20 : 17, enemy.y);
-            mesh.scaling.setAll(Math.max(0.3, enemy.hp / enemy.maxHp));
+            const dx = enemy.x - mesh.position.x, dy = enemy.y - mesh.position.z;
+            if (Math.hypot(dx, dy) > 0.1) mesh.rotation.y = -Math.atan2(dy, dx);
+            const bob = enemy.type === 'wraith' ? Math.sin(c.time * 4 + enemy.id) * 3
+                : enemy.type === 'moth' ? Math.sin(c.time * 9 + enemy.id) * 3
+                    : enemy.type === 'runner' ? Math.abs(Math.sin(c.time * 12 + enemy.id)) * 2 : 0;
+            mesh.position.set(enemy.x, mesh.metadata.baseY + bob, enemy.y);
+            if (mesh.metadata.healthFill) {
+                const ratio = Math.max(0, Math.min(1, enemy.hp / enemy.maxHp));
+                mesh.metadata.healthFill.scaling.x = ratio;
+                mesh.metadata.healthFill.position.x = -(1 - ratio) * 14.5;
+            }
+            if (mesh.metadata.wings) {
+                const flap = Math.sin(c.time * 15 + enemy.id) * 0.24;
+                mesh.metadata.wings[0].rotation.z = -0.35 - flap;
+                mesh.metadata.wings[1].rotation.z = 0.35 + flap;
+            }
         }
         for (const [id, mesh] of this.enemyMeshes) if (!alive.has(id)) {
             this.removeMesh(mesh);
             this.enemyMeshes.delete(id);
         }
-        for (const event of c.events) if (event.kind === 'shot') {
-            const line = BABYLON.MeshBuilder.CreateLines('shot', { points: [
-                new BABYLON.Vector3(event.x, 52, event.y), new BABYLON.Vector3(event.tx, 18, event.ty)
-            ] }, this.scene);
-            line.color = BABYLON.Color3.FromHexString(event.type === 'lamp' ? '#ffdc86' : event.type === 'coil' ? '#75e2f5' : '#c5a0ec');
-            this.beams.push({ mesh: line, life: 0.13 });
-        }
+        for (const event of c.events) if (event.kind === 'shot') this.fireEffect(event);
     }
 
     clearScene() {
@@ -379,8 +619,21 @@ class Game {
         if (!this.core) return;
         const oldState = this.core.state;
         this.core.update(dt);
+        this.updateCameraAnchor();
+        for (const event of this.core.events) if (event.kind === 'phase' && event.bonus) {
+            this.phaseTip = this.tr('Подкрепление +', 'Reinforcements +') + event.bonus;
+            this.tip = this.phaseTip;
+            this.phaseTipTime = 3.2;
+        }
         if (oldState === 'playing') this.syncMeshes();
-        for (const beam of this.beams) beam.life -= dt;
+        if (this.phaseTipTime > 0) {
+            this.phaseTipTime -= dt;
+            if (this.phaseTipTime <= 0 && this.tip === this.phaseTip) this.tip = '';
+        }
+        for (const beam of this.beams) {
+            beam.life -= dt;
+            if (beam.spread) beam.mesh.scaling.setAll(1 + beam.spread * (1 - beam.life / beam.maxLife));
+        }
         this.beams = this.beams.filter(beam => {
             if (beam.life > 0) return true;
             beam.mesh.dispose();

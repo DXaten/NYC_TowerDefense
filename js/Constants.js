@@ -2,7 +2,7 @@
 // the other modules read these globals. Edited by the editor (_utils/editor): the server
 // patches only lines of the form `const NAME = <number>;` — keep values as numeric
 // literals (colors — 0xRRGGBB); the editor won't touch a formula.
-const GAME_VERSION = '0.2.0'; // build version: ?v= on scripts (tools/build.mjs) and the archive name
+const GAME_VERSION = '0.3.0'; // build version: ?v= on scripts (tools/build.mjs) and the archive name
 
 // localStorage shim: in a sandbox iframe and when site data is blocked, direct access throws SecurityError.
 // All storage access goes through Store only.
@@ -77,9 +77,9 @@ const GAME_STEP_SEC = 0.35;             // s: between footstep sounds while the 
 // (WASD, Q/E) lifts the look-at point off the ground. ---
 const CAMERA_FOV_DEG = 52;              // vertical field of view
 const CAMERA_AZIMUTH_DEG = -50;         // isometric street view
-const CAMERA_PITCH_DEG = 60;            // pitch toward the ground
-const CAMERA_ZOOM = 0.72;               // starting zoom: PC and tablets
-const CAMERA_ZOOM_MOBILE = 0.58;        // starting zoom: phones
+const CAMERA_PITCH_DEG = 48;            // readable isometric street view
+const CAMERA_ZOOM = 1.08;               // starting zoom: PC and tablets
+const CAMERA_ZOOM_MOBILE = 0.91;        // starting zoom: phones
 const CAMERA_ZOOM_MIN = 0.42;           // minimum zoom
 const CAMERA_ZOOM_MAX = 3;              // won't zoom in closer
 const CAMERA_ZOOM_WHEEL_STEP = 0.12;    // fraction of zoom per one wheel notch
@@ -97,17 +97,17 @@ const CAMERA_ORBIT_PITCH_MAX_DEG = 88;  // with limits: higher — almost straig
 // World3D.cfg(); the editor applies edits to the live scene. ---
 // One sun for the whole world. Azimuth — WHERE the shadow falls on the map (0 — right, 90 — down).
 const WORLD3D_SUN_AZIMUTH_DEG = 32;
-const WORLD3D_SUN_ELEVATION_DEG = 18;   // low warm night glow
-const WORLD3D_SUN_INTENSITY = 0.55;
-const WORLD3D_SUN_COLOR = 0xf2bc91;
-const WORLD3D_SKYLIGHT_INTENSITY = 0.32;
-const WORLD3D_SKYLIGHT_COLOR = 0x7489b7;
-const WORLD3D_GROUNDLIGHT_COLOR = 0x59657b;
-const WORLD3D_SKY_COLOR = 0x101827;
-const WORLD3D_FOG_DENSITY = 0.00032;    // exponential fog toward the horizon (0 — off)
+const WORLD3D_SUN_ELEVATION_DEG = 38;   // warm window and marquee bounce at night
+const WORLD3D_SUN_INTENSITY = 1.05;
+const WORLD3D_SUN_COLOR = 0xffd5a0;
+const WORLD3D_SKYLIGHT_INTENSITY = 0.82;
+const WORLD3D_SKYLIGHT_COLOR = 0x9abbd2;
+const WORLD3D_GROUNDLIGHT_COLOR = 0x8296a5;
+const WORLD3D_SKY_COLOR = 0x30415a;
+const WORLD3D_FOG_DENSITY = 0.00018;    // keep buildings readable behind the action
 // Shadows: one color for all (painted by the toon plugin, Babylon only provides sun visibility)
 const WORLD3D_SHADOW_COLOR = 0x0f3a4d;  // shadow color
-const WORLD3D_SHADOW_STRENGTH = 0.52;    // shadow strength 0..1: a surface in shadow is multiplied by a blend of white and the shadow color
+const WORLD3D_SHADOW_STRENGTH = 0.26;    // retain silhouette without burying the streets
 const WORLD3D_SHADOW_SOFT = 2;          // edge: 0 — hard (for toon), 1..3 — PCF low/medium/high (mobile — no higher than 1)
 const WORLD3D_SHADOW_MAP = 1024;        // shadow map size (mobile — half as large); takes effect with a new scene
 const WORLD3D_SHADOW_RADIUS = 840;      // px: LIMIT of the shadow ortho frustum half-size; the frustum itself shrinks to the objects in the frame
