@@ -260,6 +260,34 @@ class Game {
         return this.materials.get(key);
     }
 
+    warmWashMaterial() {
+        const key = 'warm-wash';
+        if (!this.materials.has(key)) {
+            const texture = new BABYLON.DynamicTexture('warm-wash-gradient',
+                { width: 64, height: 64 }, this.scene, false);
+            const context = texture.getContext();
+            const gradient = context.createRadialGradient(32, 32, 0, 32, 32, 32);
+            gradient.addColorStop(0, 'rgba(255,255,255,0.82)');
+            gradient.addColorStop(0.42, 'rgba(255,255,255,0.43)');
+            gradient.addColorStop(1, 'rgba(255,255,255,0)');
+            context.fillStyle = gradient;
+            context.fillRect(0, 0, 64, 64);
+            texture.hasAlpha = true;
+            texture.update();
+            const material = new BABYLON.StandardMaterial('td-warm-wash', this.scene);
+            material.diffuseTexture = texture;
+            material.diffuseColor = BABYLON.Color3.FromHexString('#ffd7a3');
+            material.emissiveColor = BABYLON.Color3.FromHexString('#ffc98c').scale(0.8);
+            material.useAlphaFromDiffuseTexture = true;
+            material.alpha = 0.7;
+            material.disableLighting = true;
+            material.backFaceCulling = false;
+            material.disableDepthWrite = true;
+            this.materials.set(key, material);
+        }
+        return this.materials.get(key);
+    }
+
     track(mesh, kind = 'prop', opts = {}) {
         World3D.addObject(this.view, mesh, kind, opts);
         this.meshes.push(mesh);
@@ -350,6 +378,8 @@ class Game {
         const palette = ['#b98d78', '#9b91a3', '#8da8ab', '#c09b7d', '#9a85a3'];
         const signs = ['#ffcf7b', '#76e7e8', '#f4a5d8'];
         const windowPanes = { '#76e7e8': [], '#ffdd9a': [] };
+        const warmPools = [];
+        const warmFacades = [];
         for (let x = 80; x < 1200; x += 115) for (let y = 80; y < 880; y += 110) {
             const cx = x + (random() - 0.5) * 22, cy = y + (random() - 0.5) * 22;
             const height = 78 + random() * 110;
@@ -375,6 +405,22 @@ class Game {
                     '#f6bc68', 'prop', { castShadow: false, ink: false, outline: false });
                 sign.material = this.material(signs[Math.floor(random() * signs.length)], 'prop', true);
             }
+            const lanternHash = (Math.imul(x, 73856093) ^ Math.imul(y, 19349663) ^
+                Math.imul(this.levelIndex + 1, 83492791)) >>> 0;
+            if (lanternHash % 11 < 2) {
+                const wall = cy + width / 2;
+                const sconceY = Math.max(34, height * 0.36);
+                this.box('sconce-bracket', 5, 6, 18, cx, sconceY + 5, wall + 8,
+                    '#674e53', 'prop', { castShadow: false, ink: false, outline: false });
+                const lantern = this.box('warm-lantern', 13, 16, 9, cx, sconceY, wall + 20,
+                    '#ffd394', 'prop', { castShadow: false, ink: false, outline: false });
+                lantern.material = this.material('#ffd394', 'prop', true);
+                this.box('lantern-cap', 18, 4, 13, cx, sconceY + 10, wall + 20,
+                    '#534c59', 'prop', { castShadow: false, ink: false, outline: false });
+                warmPools.push({ x: cx, y: wall + 43, h: 4.1, scale: [114, 1, 108] });
+                warmFacades.push({ x: cx, y: wall + 1.5, h: sconceY + 13,
+                    scale: [width * 1.02, height * 0.56, 1] });
+            }
             if (random() < 0.26) {
                 this.box('rooftop-water-tank', 25, 19, 25, cx + width * 0.2, height + 19, cy,
                     '#617c89', 'prop', { ink: false, outline: false });
@@ -389,6 +435,25 @@ class Game {
                 { castShadow: false, ink: false, outline: false });
             if (group.ok) this.meshes.push(group.root);
             else source.dispose();
+        }
+        if (warmPools.length) {
+            // Soft static washes: two thin-instance draws, no per-building point lights.
+            const pool = BABYLON.MeshBuilder.CreateGround('warm-light-pools',
+                { width: 1, height: 1 }, this.scene);
+            pool.material = this.warmWashMaterial();
+            pool.isPickable = false;
+            const group = World3D.addInstances(this.view, pool, 'prop', warmPools,
+                { castShadow: false, receiveShadows: false, ink: false, outline: false });
+            if (group.ok) this.meshes.push(group.root);
+            else pool.dispose();
+            const facade = BABYLON.MeshBuilder.CreatePlane('warm-facade-washes',
+                { width: 1, height: 1 }, this.scene);
+            facade.material = this.warmWashMaterial();
+            facade.isPickable = false;
+            const facadeGroup = World3D.addInstances(this.view, facade, 'prop', warmFacades,
+                { castShadow: false, receiveShadows: false, ink: false, outline: false });
+            if (facadeGroup.ok) this.meshes.push(facadeGroup.root);
+            else facade.dispose();
         }
         for (const [spawn, entry] of alleys) {
             const mark = BABYLON.MeshBuilder.CreateCylinder('rift', { diameter: 38, height: 3, tessellation: 12 }, this.scene);

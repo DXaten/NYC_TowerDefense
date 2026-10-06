@@ -103,8 +103,8 @@ const WORLD3D_SUN_COLOR = 0xffd5a0;
 const WORLD3D_SKYLIGHT_INTENSITY = 0.82;
 const WORLD3D_SKYLIGHT_COLOR = 0x9abbd2;
 const WORLD3D_GROUNDLIGHT_COLOR = 0x8296a5;
-const WORLD3D_SKY_COLOR = 0x30415a;
-const WORLD3D_FOG_DENSITY = 0.00018;    // keep buildings readable behind the action
+const WORLD3D_SKY_COLOR = 0x576b79;
+const WORLD3D_FOG_DENSITY = 0.00038;    // cool smog softens distant blocks without hiding the route
 // Shadows: one color for all (painted by the toon plugin, Babylon only provides sun visibility)
 const WORLD3D_SHADOW_COLOR = 0x0f3a4d;  // shadow color
 const WORLD3D_SHADOW_STRENGTH = 0.26;    // retain silhouette without burying the streets
