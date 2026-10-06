@@ -1,44 +1,25 @@
-# Building reference sheets
+# Architecture references
 
-Six original concept sheets for architecture in the mystical New York setting. Each PNG shows one asset from the front, right side, rear, above, and an isometric angle. These are **visual references**, not measured orthographic drawings or finished meshes. Generated with OpenAI ImageGen on 2026-10-05 and 2026-10-06. The three latest landmarks also have isolated [isometric inputs](inputs/) for single-image 3D generation.
+Curated five-view concept sheets for an industrial, mystical New York in the late 1990s. The Brooklyn brownstone, Chinatown shophouse and neighborhood bank establish the style: warm brick and stone, amber interiors, metal infrastructure, a little steam, and rare turquoise magical details. The newer sheets use those three images as direct style references. Each sheet shows front, side, rear, top and isometric views. They are concept art, not measured orthographic plans or finished low-poly meshes.
 
-| Sheet | Role in the game | Model the silhouette first |
+| Sheet | Place in the game | Main silhouette |
 | --- | --- | --- |
-| [Brooklyn brownstone](brooklyn-brownstone-sheet.png) | Residential street / first district | Narrow brick block, stoop, strong cornice, simple roof tank, warm windows and one turquoise basement grate. |
-| [Chinatown shophouse](chinatown-shophouse-sheet.png) | Shop and apartment block / second district | Red awning, corner lanterns, modular brick upper floors, side fire escape, restrained magical seal at the door. |
-| [Gothic chapel](gothic-chapel-sheet.png) | Foggy district / first beacon clue | Small one-story nave, steep slate roof, one short bell turret and warm oculus. |
-| [Suspension bridge](suspension-bridge-sheet.png) | Convoy crossing / dramatic route landmark | Rust-red steel, two tall open towers, sparse catenary cables, drivable deck and amber lamps. |
-| [Neighborhood bank](neighborhood-bank-sheet.png) | Civic district / beacon power relay | Squat two-story stone block, short columned entrance, roof skylight, a single turquoise ward panel. |
-| [Gothic church](gothic-church-sheet.png) | Final fog district / treaty archive | Long high nave, twin front bell towers, rose window, broad buttresses and a polygonal apse. |
+| [Brooklyn brownstone](brooklyn-brownstone-sheet.png) | Residential street | Narrow brick block, stoop, cornice, rooftop tank. |
+| [Chinatown shophouse](chinatown-shophouse-sheet.png) | Mixed-use street | Three-story brick shop, red awning, lanterns, fire escape. |
+| [Neighborhood bank](neighborhood-bank-sheet.png) | Civic square and beacon relay | Squat stone mass, restrained portico, rooftop skylight. |
+| [Brick powerhouse](brick-powerhouse-sheet.png) | Industrial district and beacon power supply | Two-story brick utility block, broad factory windows, roof ventilation and steam stack. |
+| [Elevated subway station](elevated-subway-sheet.png) | Route landmark | Short riveted-steel platform, brick stair tower, clear passage beneath the track. |
+| [Industrial skyscraper](industrial-skyscraper-sheet.png) | Skyline landmark and distant backdrop | Slender brick-and-limestone tower, repeated floors, rooftop tank and service equipment. |
+| [Green-crown tower](green-crown-tower-sheet.png) | District skyline landmark | Broad office shaft, oxidized-copper green roof and a single narrow spire. |
 
-## Modeling guidance
+## Shared visual direction
 
-- Keep the same footprint and facade rhythm in all five views. The generated views are conceptually consistent but may disagree on exact window placement, story count or roof details; pick the isometric view as the source of truth and correct the orthographic views while modeling.
-- Build only the large architectural forms in geometry. Make window frames, brick joints, carved cornices and lantern details as texture or a few reusable modules. Avoid loose geometry that disappears from the game's isometric camera.
-- Use an opaque base body; make glass/emissive windows separate simple quads. Add fog and magical light in the game engine rather than baking voluminous effects into the mesh.
-- Initial target for a repeatable background building: about **1,000–3,000 triangles**, with a cheaper distant variant. The chapel, bank, bridge, and church may need **2,000–5,000 triangles** each as one-off landmarks if their silhouettes remain visible from the game's camera. Keep bridge cables sparse, as simple curves or strips; use broad church masonry forms and texture detail rather than modeling every joint. These are targets to validate in the running game, not automatic guarantees from an image-to-3D service.
-- Use small shared materials, reusable windows/stoops/awnings, and texture atlases. Retopologize and inspect generated meshes before integration. Check UVs, normals, hidden backfaces, triangle count, draw calls, and license terms of the 3D service.
-- For single-image generation, use the isolated isometric view or generate a clean single-building image. Do not upload the entire five-view sheet as one image: the service may reconstruct five separate buildings. If multi-view input is available, supply individual views after verifying their details agree.
+- Keep the warm brown-gray studio palette, small amber light pools and sparse turquoise symbols seen in the first three approved sheets. Put smog and street fog in the game scene; keep the model itself readable without baked volumetric effects.
+- Use believable late-1990s city hardware: fire escapes, water tanks, vents, transformers, riveted beams, steel doors and simple street lamps. Keep windows and facade rhythm consistent across all sides.
+- Treat the isometric view as the primary silhouette guide. The generated views can disagree on floor count or small details; reconcile them before modeling.
+- Build brick joints, window mullions and roof seams with textures or reusable modules. Do not model every joint. Use one or two small shared material atlases where practical.
+- Prototype repeatable buildings around **1,000–3,000 triangles**. Landmarks can start around **3,000–5,000 triangles** if they remain on screen in the isometric camera. Create cheaper distant variants; form the skyscraper from repeated floor modules and a low-detail skyline proxy. Validate these targets on a phone with the actual number of visible assets.
+- Keep the station modular: track, platform, canopy, columns and stair block can be reused separately. Check that the caravan path clears the support columns and stair footprint.
+- To generate a single 3D model in Tripo or Hunyuan3D, make one isolated isometric image per asset. Do not upload the entire five-view sheet as one image. Inspect the generated mesh, UVs, normals, hidden faces, texture size, triangle count and service license before integrating it.
 
-## Isolated 3D inputs
-
-| Input | Model |
-| --- | --- |
-| [Suspension bridge](inputs/suspension-bridge-isometric.png) | One complete bridge on neutral background. In a game engine, the anchors, deck, towers and cables may be cheaper and cleaner as separate repeated parts rather than a single generated mesh. |
-| [Gothic chapel](inputs/gothic-chapel-isometric.png) | One compact chapel; keep the roof, walls, turret and buttresses as broad forms. |
-| [Gothic church](inputs/gothic-church-isometric.png) | One large twin-tower church; generated meshes will likely need substantial retopology and texture simplification. |
-
-Each input was created from its corresponding sheet with a prompt for one isolated three-quarter isometric object, light neutral studio background, and simplified geometry. The inputs are concept art, not evidence of a target polygon count.
-
-## ImageGen prompt set
-
-All six prompts used the `stylized-concept` use case and specified an original low-poly architectural asset, five consistent views (front, right side, rear, roof, isometric), readable studio lighting, neutral background, simple modular silhouette, and no people, vehicles, text, logos or copied game-map architecture. The individual briefs were:
-
-1. **Brooklyn:** A narrow brownstone with stoop and iron rails, warm russet brick, pale stone lintels, amber windows, a modest rooftop water tank or chimney, and a subtle teal glow from a basement grate.
-2. **Chinatown:** A believable New York mixed-use shophouse with brick and painted stucco, side fire escape, unlettered deep-red awning, simple geometric lanterns, teal/magenta windows, and a restrained glowing doorway seal; avoid a pagoda silhouette.
-3. **Chapel:** A compact single-story Gothic chapel with a steep slate roof, one short open bell turret, warm-lit oculus, pointed doorway, a few side windows, broad buttresses, and faint aqua mist near the base. Keep it visibly smaller than the church.
-4. **Suspension bridge:** An original rust-red American suspension bridge inspired by the general Golden Gate archetype, with two tall steel towers, sparse catenary cables, a clear drivable deck, amber lamps, turquoise anchor wards, and blue-gray smog. Avoid exact landmark proportions, signage, and tourist branding.
-5. **Bank:** An original neighborhood civic bank with a restrained columned portico, simple stone masses, rooftop skylight, warm windows and one small turquoise mystical ward; no stock-exchange inscriptions or recognizable landmark copy.
-6. **Church:** A larger Gothic church with a long high nave, twin square front bell towers, rose window, pointed entry, broad stepped buttresses, apse, muted violet glazing, and sparse warm spotlighting. Keep the geometry broad and modular, distinct from the small chapel.
-
-The official *City Never Sleeps* update informed the district mood; no building from Deadlock was traced or reproduced: <https://www.playdeadlock.com/cityneversleeps>.
+These designs are original interpretations of the selected urban mood; they do not reproduce a specific real building or game-map asset.
