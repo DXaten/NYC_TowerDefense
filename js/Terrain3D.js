@@ -279,5 +279,5 @@ class Terrain3D {
 }
 
 // Width of the ground ring beyond the location edge (px) and its cell.
-Terrain3D.OUTER_RING = 2400;
+Terrain3D.OUTER_RING = 4700;
 Terrain3D.RING_CELL = 64;

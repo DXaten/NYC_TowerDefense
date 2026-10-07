@@ -142,6 +142,53 @@ test('фиксированная изометрия сохраняет накл�
   assert.ok(Math.abs(cam.pitch - pitch) < EPS, 'жест не меняет угол');
 });
 
+test('короткий tap оставляет слежение, перетаскивание пальцем переводит камеру в ручной режим', () => {
+  const { cam } = makeCamera();
+  cam._canvas = { getBoundingClientRect: () => ({ left: 0, top: 0 }), setPointerCapture() {} };
+  cam.view.pointerToGround = (x, y) => ({ x: cam.target.x + x, y: cam.target.y + y });
+  const caravan = { x: 1024, y: 1024 };
+  cam.follow(caravan);
+  cam.home();
+  const touch = (x, y) => ({ pointerId: 1, pointerType: 'touch', button: 0,
+    clientX: x, clientY: y, preventDefault() {} });
+
+  cam._onDown(touch(100, 100));
+  cam._onMove(touch(103, 104));
+  cam._onUp(touch(103, 104));
+  assert.equal(cam.followObj, caravan, 'tap с небольшим дрожанием не сбрасывает слежение');
+  caravan.x += 50;
+  cam.update(0.1);
+  assert.ok(cam.target.x > 1024, 'камера продолжает следовать за караваном');
+
+  const beforePan = cam.target.x;
+  cam._onDown(touch(100, 100));
+  cam._onMove(touch(120, 100));
+  assert.equal(cam.followObj, null, 'явный drag отключает слежение');
+  assert.ok(cam.target.x < beforePan, 'drag сдвигает карту');
+  cam._onUp(touch(120, 100));
+});
+
+test('два пальца переключают на ручную камеру и сохраняют pinch zoom', () => {
+  const { cam } = makeCamera();
+  cam._canvas = { getBoundingClientRect: () => ({ left: 0, top: 0 }), setPointerCapture() {} };
+  cam.view.pointerToGround = (x, y) => ({ x: cam.target.x + x, y: cam.target.y + y });
+  const caravan = { x: 1024, y: 1024 };
+  cam.follow(caravan);
+  cam.home();
+  const zoom = cam.zoom;
+  const touch = (pointerId, x, y) => ({ pointerId, pointerType: 'touch', button: 0,
+    clientX: x, clientY: y, preventDefault() {} });
+
+  cam._onDown(touch(1, 100, 100));
+  assert.equal(cam.followObj, caravan, 'первый палец ещё может быть tap');
+  cam._onDown(touch(2, 200, 100));
+  assert.equal(cam.followObj, null, 'второй палец начинает жест камеры');
+  cam._onMove(touch(2, 250, 100));
+  assert.ok(cam.zoom > zoom, 'разведение пальцев приближает');
+  cam._onUp(touch(2, 250, 100));
+  cam._onUp(touch(1, 100, 100));
+});
+
 test('CAMERA_LIMITS = 0: игровая камера летает без потолка и границ и смотрит выше горизонта', () => {
   const { cam, liftMax } = makeCamera();
   key(cam, 'KeyE');

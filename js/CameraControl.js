@@ -434,10 +434,11 @@ class CameraController {
         e.preventDefault();
         try { this._canvas.setPointerCapture(e.pointerId); } catch (err) { /* synthetic event */ }
         const p = this._local(e);
-        const rec = { x: p.x, y: p.y, mode: mode, anchor: null };
+        const rec = { x: p.x, y: p.y, startX: p.x, startY: p.y,
+            mode: mode, anchor: null, panStarted: mode !== 'touch' };
         if (mode === 'pan' || mode === 'touch') {
             rec.anchor = this._pick(p.x, p.y);
-            this.followObj = null;
+            if (mode === 'pan') this.followObj = null;
         }
         this._pointers.set(e.pointerId, rec);
         this._zoomAnchor = null;
@@ -461,6 +462,13 @@ class CameraController {
             rec.x = p.x;
             rec.y = p.y;
             this._applyPinch();
+        } else if (rec.mode === 'touch') {
+            if (!rec.panStarted) {
+                if (Math.hypot(p.x - rec.startX, p.y - rec.startY) < CameraController.TOUCH_PAN_SLOP_PX) return;
+                rec.panStarted = true;
+                this.followObj = null;
+            }
+            if (rec.anchor) this._dragTo(rec.anchor, p.x, p.y);
         } else if (rec.anchor) {
             this._dragTo(rec.anchor, p.x, p.y);
         }
@@ -484,6 +492,9 @@ class CameraController {
 
     _startPinch() {
         const [a, b] = this._touches();
+        // A second finger makes this a camera gesture, unlike a short map tap.
+        a.panStarted = b.panStarted = true;
+        this.followObj = null;
         this._pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y), anchor: this._pick((a.x + b.x) / 2, (a.y + b.y) / 2) };
     }
 
@@ -622,3 +633,4 @@ CameraController.EYE_MIN = 40;   // px: the camera no lower than this above the 
 
 // Free camera pitch, °: look-around — almost the full sphere, orbit — not under the target.
 CameraController.FREE_PITCH = { min: -85, max: 88, orbitMin: 8 };
+CameraController.TOUCH_PAN_SLOP_PX = 9;

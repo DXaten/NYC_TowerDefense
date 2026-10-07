@@ -21,8 +21,9 @@
 //            x (y) is the inset from BOTH edges, w (h) is ignored. A full-screen dim:
 //            { kind: 'panel', stretch: 'both', x: 0, y: 0 }.
 //   Colors — '#rrggbb' strings, '' — none. Records go in drawing order: later — on top.
-// SCALE: layout numbers are px of a screen UI_REF_HEIGHT tall — the whole UI scales with the
-//   real height (a 1440 px screen draws a 720 px layout twice as big). UI_REF_HEIGHT = 0 — CSS px.
+// SCALE: layout numbers are px of a screen UI_REF_HEIGHT tall. A centered controls panel also
+//   limits the scale by the available width, leaving UI_SIDE_MARGIN_PX on each side.
+//   UI_REF_HEIGHT = 0 — CSS px without scaling.
 
 /** @satisfies {Record<string, any>} */
 const UI = {
@@ -146,11 +147,21 @@ const UI = {
         (parent ? parent.el : this.root).appendChild(e.el);
     },
 
-    // UI px per CSS px: screen height / UI_REF_HEIGHT.
+    // Layout px to CSS px: fit the reference height, then keep the centered controls
+    // panel clear of narrow screen edges. Its width comes from UILayout.js, not a duplicate.
     scale() {
         const ref = typeof UI_REF_HEIGHT !== 'undefined' ? UI_REF_HEIGHT : 720;
-        const h = this.canvas ? this.canvas.clientHeight : 0;
-        return ref > 0 && h > 0 ? h / ref : 1;
+        const c = this.canvas, h = c ? c.clientHeight : 0;
+        if (ref <= 0 || h <= 0) return 1;
+        let scale = h / ref;
+        const controls = this.layout.find(d => d.id === 'controls' && d.kind === 'panel');
+        if (controls && c && controls.w > 0) {
+            const margin = typeof UI_SIDE_MARGIN_PX !== 'undefined' ? UI_SIDE_MARGIN_PX : 16;
+            const offset = Math.abs(Number(controls.x) || 0);
+            const available = Math.max(1, c.clientWidth - 2 * Math.max(0, margin));
+            scale = Math.min(scale, available / (controls.w + 2 * offset));
+        }
+        return scale;
     },
 
     // The root covers the canvas; its inner size is the screen in layout px.

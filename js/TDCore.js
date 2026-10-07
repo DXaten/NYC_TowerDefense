@@ -3,6 +3,12 @@ class TDCore {
     constructor(level, options = {}) {
         this.level = level;
         this.route = TDCore.route(level.path);
+        this.lanterns = TDCore.DAWN.fractions.map(fraction => {
+            const distance = this.route.total * fraction;
+            return { ...TDCore.pointAt(this.route, distance), distance, lit: false };
+        });
+        this.litLanterns = 0;
+        this.dawnCharge = 0;
         this.state = 'ready';
         this.time = 0;
         this.distance = 0;
@@ -10,6 +16,12 @@ class TDCore {
         this.credits = level.credits;
         this.score = 0;
         this.phase = 1;
+        this.beaconHoldSeconds = level.beaconHoldSeconds || 25;
+        this.beaconHold = this.beaconHoldSeconds;
+        this.beaconPrepSeconds = level.beaconPrepSeconds || 6;
+        this.beaconPrep = 0;
+        this.beaconActive = false;
+        this.beaconWaveStarted = false;
         this.spawnTimer = 0;
         this.spawnCount = 0;
         this.spawnGroupCount = 0;
@@ -19,6 +31,44 @@ class TDCore {
         this.towers = [];
         this.events = [];
         this.options = options;
+        this.modifiers = [...new Set(Array.isArray(options.modifiers) ? options.modifiers : [])]
+            .filter(id => TDCore.MODIFIER_IDS.includes(id));
+        this.random = typeof options.random === 'function' ? options.random : Math.random;
+        const fallbackDeck = level.defaultDeck || (level.towerPool || ['lamp', 'coil', 'signal']).slice(0, level.deckSize || 3);
+        this.deck = (TDCore.validateDeck(level, options.deck) ? options.deck : fallbackDeck).slice();
+        this.typeRanks = Object.fromEntries(this.deck.map(type => [type, 1]));
+        this.drawPile = [];
+        this.hand = this.dealHand();
+        this.refreshCost = this.modifiers.includes('cheap_refresh') ? 25 : (level.refreshCost || 40);
+    }
+
+    static validateDeck(level, deck) {
+        const pool = level.towerPool || ['lamp', 'coil', 'signal'];
+        const size = level.deckSize || Math.min(4, pool.length);
+        return Array.isArray(deck) && deck.length === size && new Set(deck).size === size &&
+            deck.every(type => pool.includes(type) && !!TDCore.TOWERS[type]);
+    }
+
+    randomIndex(length) {
+        return Math.min(length - 1, Math.floor(Math.max(0, this.random()) * length));
+    }
+
+    shuffleDeck() {
+        const cards = this.deck.slice();
+        for (let i = cards.length - 1; i > 0; i--) {
+            const j = this.randomIndex(i + 1);
+            [cards[i], cards[j]] = [cards[j], cards[i]];
+        }
+        return cards;
+    }
+
+    drawCard() {
+        if (!this.drawPile.length) this.drawPile = this.shuffleDeck();
+        return this.drawPile.pop();
+    }
+
+    dealHand() {
+        return Array.from({ length: 3 }, () => this.drawCard());
     }
 
     static route(points) {
@@ -84,8 +134,81 @@ class TDCore {
         const spec = TDCore.TOWERS[type];
         if (!site || !spec || this.getTower(siteId) || this.credits < spec.cost) return false;
         this.credits -= spec.cost;
-        this.towers.push({ siteId, type, level: 1, cooldown: 0, x: site.x, y: site.y });
+        this.towers.push({ siteId, type, level: this.typeRanks[type] || 1, cooldown: 0, x: site.x, y: site.y });
         this.events.push({ kind: 'build', siteId, type });
+        return true;
+    }
+
+    placeCard(siteId, handIndex) {
+        if (!Number.isInteger(handIndex) || handIndex < 0 || handIndex >= this.hand.length) return false;
+        const type = this.hand[handIndex];
+        if (!this.place(siteId, type)) return false;
+        const drawn = this.drawCard();
+        this.hand[handIndex] = drawn;
+        this.events.push({ kind: 'draw', handIndex, type: drawn });
+        return true;
+    }
+
+    refreshHand() {
+        if (this.state === 'won' || this.state === 'lost' || this.deck.length <= this.hand.length ||
+            this.credits < this.refreshCost) return false;
+        this.credits -= this.refreshCost;
+        const previous = this.hand;
+        this.drawPile = this.shuffleDeck();
+        this.hand = this.dealHand();
+        if (previous.every(type => this.hand.includes(type))) {
+            const oldCard = this.hand[0];
+            this.hand[0] = this.drawPile.pop();
+            this.drawPile.push(oldCard);
+        }
+        this.events.push({ kind: 'refresh', cost: this.refreshCost, hand: this.hand.slice() });
+        return true;
+    }
+
+    merge(sourceSiteId, targetSiteId) {
+        if (sourceSiteId === targetSiteId || this.state === 'won' || this.state === 'lost') return false;
+        const source = this.getTower(sourceSiteId), target = this.getTower(targetSiteId);
+        if (!source || !target || source.level !== target.level || source.level >= 3) return false;
+        const type = this.deck[this.randomIndex(this.deck.length)];
+        this.towers.splice(this.towers.indexOf(source), 1);
+        target.type = type;
+        target.level++;
+        target.cooldown = 0;
+        this.events.push({ kind: 'merge', sourceSiteId, targetSiteId, type, level: target.level });
+        return true;
+    }
+
+    typeUpgradeCost(type) {
+        const rank = this.typeRanks[type];
+        if (!rank || rank >= 3) return null;
+        return Math.round(TDCore.TOWERS[type].cost * (rank === 1 ? 1.75 : 2.5));
+    }
+
+    upgradeType(type) {
+        if (this.state === 'won' || this.state === 'lost' || this.state === 'paused') return false;
+        const cost = this.typeUpgradeCost(type);
+        if (cost === null || this.credits < cost) return false;
+        this.credits -= cost;
+        const rank = ++this.typeRanks[type];
+        for (const tower of this.towers) if (tower.type === type)
+            tower.level = Math.max(tower.level, rank);
+        this.events.push({ kind: 'upgrade_type', type, rank, cost });
+        return true;
+    }
+
+    useDawnPulse() {
+        if (this.state !== 'playing' || this.dawnCharge < TDCore.DAWN.pulseCost) return false;
+        this.dawnCharge -= TDCore.DAWN.pulseCost;
+        const litEnd = this.lanterns[this.litLanterns - 1]?.distance || 0;
+        let affected = 0;
+        for (const enemy of this.enemies) {
+            if (enemy.hp <= 0 || enemy.mode !== 'route' || enemy.routeDistance > litEnd) continue;
+            enemy.marked = Math.max(enemy.marked, TDCore.DAWN.pulseMark);
+            enemy.slow = Math.max(enemy.slow, TDCore.DAWN.pulseSlow);
+            this.hurt(enemy, TDCore.DAWN.pulseDamage, 'dawn');
+            affected++;
+        }
+        this.events.push({ kind: 'dawn_pulse', affected, charge: this.dawnCharge, litEnd });
         return true;
     }
 
@@ -122,7 +245,7 @@ class TDCore {
         const point = this.level.spawns[spawnIndex];
         const entry = TDCore.projectOnRoute(this.route, point[0], point[1]);
         const scale = 1 + (this.level.difficulty - 1) * 0.17 + (this.phase - 1) * 0.12;
-        const count = type === 'moth' ? (this.level.mothPack || 1) : 1;
+        const count = type === 'moth' ? (wave.mothPack || this.level.mothPack || 1) : 1;
         for (let i = 0; i < count; i++) {
             // Pack members begin in a short line on the rendered alley.
             const offset = i * 0.08;
@@ -142,11 +265,35 @@ class TDCore {
         this.phaseSpawnCount++;
     }
 
+    spawnBeaconWave() {
+        const point = this.level.path[0];
+        const pattern = this.level.beaconWavePattern;
+        const scale = 1 + (this.level.difficulty - 1) * 0.17 + 0.24;
+        for (let i = 0; i < pattern.length; i++) {
+            const type = pattern[i], spec = TDCore.ENEMIES[type];
+            const hp = Math.round(spec.hp * scale);
+            const travelFraction = type === 'porter' ? 0.58 : type === 'wraith' ? 0.55 : 0.5;
+            const enemy = {
+                id: this.nextEnemyId++, type, spawnIndex: -1,
+                x: point[0], y: point[1], hp, maxHp: hp,
+                speed: this.route.total / (this.beaconHoldSeconds * travelFraction),
+                slow: 0, marked: 0, entry: { x: point[0], y: point[1], distance: 0 },
+                routeDistance: -i * 28, mode: 'route', beaconWave: true
+            };
+            this.enemies.push(enemy);
+            this.spawnCount++;
+            this.events.push({ kind: 'spawn', enemy });
+        }
+        this.events.push({ kind: 'beacon_wave', count: pattern.length });
+    }
+
     hurt(enemy, damage, attackType) {
         if (enemy.hp <= 0) return;
         const resistance = TDCore.MATCHUPS[attackType][enemy.type];
+        // Fog veils a spirit, but never makes a tower completely useless. Signal strips
+        // the veil for its mark duration and remains the efficient answer to spirits.
         const multiplier = enemy.type === 'wraith' && enemy.marked <= 0 && attackType !== 'signal'
-            ? 0 : resistance;
+            ? resistance * 0.35 : resistance;
         enemy.hp = Math.max(0, enemy.hp - damage * multiplier);
         if (enemy.hp === 0) {
             const reward = TDCore.ENEMIES[enemy.type].reward;
@@ -156,16 +303,38 @@ class TDCore {
         }
     }
 
+    relayMultiplier(tower) {
+        let bonus = 0;
+        const radius = TDCore.TOWERS.relay.radius * (this.modifiers.includes('relay_circuit') ? 1.18 : 1);
+        for (const relay of this.towers) {
+            if (relay === tower || relay.type !== 'relay') continue;
+            if (Math.hypot(relay.x - tower.x, relay.y - tower.y) > radius) continue;
+            bonus = Math.max(bonus, TDCore.TOWERS.relay.bonus + 0.1 * (relay.level - 1));
+        }
+        return 1 + bonus;
+    }
+
+    dawnMultiplier(tower) {
+        return this.lanterns.some(lantern => lantern.lit &&
+            Math.hypot(lantern.x - tower.x, lantern.y - tower.y) <= TDCore.DAWN.auraRadius)
+            ? TDCore.DAWN.auraMultiplier : 1;
+    }
+
     fire(tower) {
+        if (tower.type === 'relay') return false;
         const spec = TDCore.TOWERS[tower.type];
-        const range = spec.range * (1 + 0.12 * (tower.level - 1));
-        const damage = spec.damage * (1 + 0.5 * (tower.level - 1));
+        const range = spec.range * (1 + 0.12 * (tower.level - 1)) *
+            (tower.type === 'projector' && this.modifiers.includes('projector_lens') ? 1.18 : 1);
+        const damage = spec.damage * (1 + 0.5 * (tower.level - 1)) * this.relayMultiplier(tower) *
+            this.dawnMultiplier(tower) *
+            (tower.type === 'lamp' && this.modifiers.includes('lamp_focus') ? 1.2 : 1);
         if (tower.type === 'signal') {
             const targets = this.enemies.filter(e => e.hp > 0 && Math.hypot(e.x - tower.x, e.y - tower.y) <= range);
             if (!targets.length) return false;
             for (const enemy of targets) {
-                enemy.marked = Math.max(enemy.marked, spec.mark);
-                enemy.slow = Math.max(enemy.slow, spec.slow);
+                const echo = this.modifiers.includes('signal_echo') ? 0.7 : 0;
+                enemy.marked = Math.max(enemy.marked, spec.mark + echo);
+                enemy.slow = Math.max(enemy.slow, spec.slow + echo);
                 this.hurt(enemy, damage, 'signal');
             }
             this.events.push({ kind: 'shot', type: tower.type, x: tower.x, y: tower.y,
@@ -177,13 +346,16 @@ class TDCore {
         for (const enemy of this.enemies) {
             if (enemy.hp <= 0) continue;
             if (Math.hypot(enemy.x - tower.x, enemy.y - tower.y) > range) continue;
+            if (tower.type === 'projector' && target && target.type === 'runner' && enemy.type !== 'runner') continue;
             const distance = Math.hypot(enemy.x - this.convoy.x, enemy.y - this.convoy.y);
-            if (distance < best) { best = distance; target = enemy; }
+            if (tower.type === 'projector' && enemy.type === 'runner' && (!target || target.type !== 'runner')) {
+                best = distance; target = enemy;
+            } else if (distance < best) { best = distance; target = enemy; }
         }
         if (!target) return false;
         if (tower.type === 'coil') {
             const chain = [target];
-            while (chain.length < spec.jumps) {
+            while (chain.length < spec.jumps + (this.modifiers.includes('coil_fork') ? 1 : 0)) {
                 const last = chain[chain.length - 1];
                 const next = this.enemies.filter(e => e.hp > 0 && !chain.includes(e) &&
                     Math.hypot(e.x - last.x, e.y - last.y) <= spec.jumpRange)
@@ -195,7 +367,7 @@ class TDCore {
             this.events.push({ kind: 'shot', type: tower.type, x: tower.x, y: tower.y,
                 targets: chain.map(e => ({ x: e.x, y: e.y })) });
         } else {
-            this.hurt(target, damage, 'lamp');
+            this.hurt(target, damage, tower.type);
             this.events.push({ kind: 'shot', type: tower.type, x: tower.x, y: tower.y,
                 targets: [{ x: target.x, y: target.y }] });
         }
@@ -209,6 +381,14 @@ class TDCore {
         this.time += dt;
         this.distance = Math.min(this.route.total, this.distance + this.level.speed * dt);
         Object.assign(this.convoy, TDCore.pointAt(this.route, this.distance));
+        for (const lantern of this.lanterns) if (!lantern.lit && this.distance >= lantern.distance) {
+            lantern.lit = true;
+            this.litLanterns++;
+            this.dawnCharge = Math.min(TDCore.DAWN.maxCharge,
+                this.dawnCharge + TDCore.DAWN.chargePerLantern);
+            this.events.push({ kind: 'lantern_lit', index: this.litLanterns - 1,
+                x: lantern.x, y: lantern.y, charge: this.dawnCharge });
+        }
         const phase = Math.min(3, Math.floor(this.distance / this.route.total * 3) + 1);
         if (phase !== this.phase) {
             this.phase = phase;
@@ -218,14 +398,21 @@ class TDCore {
             this.credits += bonus;
             this.events.push({ kind: 'phase', phase, bonus });
         }
+        const arrived = !this.beaconActive && this.distance >= this.route.total;
+        if (arrived) {
+            this.beaconActive = true;
+            this.beaconPrep = this.beaconPrepSeconds;
+            this.events.push({ kind: 'beacon_prep', seconds: this.beaconPrepSeconds });
+        }
 
         this.spawnTimer -= dt;
-        if (this.spawnTimer <= 0 && this.distance < this.route.total - 40) {
+        if (this.spawnTimer <= 0 && !this.beaconActive && this.distance < this.route.total - 40) {
             this.spawnEnemy();
             this.spawnTimer += this.level.waves[this.phase - 1].interval;
         }
 
         for (const tower of this.towers) {
+            if (tower.type === 'relay') continue;
             tower.cooldown -= dt;
             if (tower.cooldown <= 0 && this.fire(tower)) tower.cooldown = TDCore.TOWERS[tower.type].interval / (1 + 0.18 * (tower.level - 1));
         }
@@ -260,19 +447,38 @@ class TDCore {
         if (this.convoy.hp <= 0) {
             this.state = 'lost';
             this.events.push({ kind: 'lost' });
-        } else if (this.distance >= this.route.total) {
-            this.state = 'won';
-            this.score += this.convoy.hp * 100;
-            this.events.push({ kind: 'won' });
+        } else if (this.beaconActive && !arrived) {
+            if (!this.beaconWaveStarted) {
+                this.beaconPrep = Math.max(0, this.beaconPrep - dt);
+                if (this.beaconPrep <= 0) {
+                    this.beaconWaveStarted = true;
+                    this.spawnBeaconWave();
+                }
+            } else {
+                this.beaconHold = Math.max(0, this.beaconHold - dt);
+                if (this.beaconHold <= 0) {
+                    this.state = 'won';
+                    this.score += this.convoy.hp * 100;
+                    this.events.push({ kind: 'won' });
+                }
+            }
         }
     }
 }
 
 TDCore.TOWERS = {
-    lamp: { cost: 85, range: 210, damage: 36, interval: 0.7 },
-    coil: { cost: 100, range: 215, damage: 36, interval: 1, jumps: 4, jumpRange: 100 },
-    signal: { cost: 105, range: 215, damage: 20, interval: 1.6, slow: 3.5, mark: 4.5 }
+    lamp: { cost: 85, range: 210, damage: 44, interval: 0.8 },
+    coil: { cost: 100, range: 215, damage: 34, interval: 0.9, jumps: 4, jumpRange: 100 },
+    signal: { cost: 105, range: 215, damage: 18, interval: 1.45, slow: 3.5, mark: 4.5 },
+    projector: { cost: 110, range: 235, damage: 32, interval: 0.75 },
+    relay: { cost: 95, radius: 265, bonus: 0.4 }
 };
+TDCore.DAWN = {
+    fractions: [0.16, 0.36, 0.56, 0.76, 0.96],
+    maxCharge: 100, chargePerLantern: 20, pulseCost: 50, pulseDamage: 55,
+    pulseMark: 5, pulseSlow: 4, auraRadius: 180, auraMultiplier: 1.15
+};
+TDCore.MODIFIER_IDS = ['lamp_focus', 'coil_fork', 'signal_echo', 'projector_lens', 'relay_circuit', 'cheap_refresh'];
 TDCore.ENEMIES = {
     runner: { hp: 65, speed: 90, reward: 14, breach: 1 },
     wraith: { hp: 85, speed: 58, reward: 19, breach: 3 },
@@ -280,7 +486,9 @@ TDCore.ENEMIES = {
     porter: { hp: 235, speed: 44, reward: 34, breach: 3 }
 };
 TDCore.MATCHUPS = {
+    dawn: { runner: 1, wraith: 1, moth: 1, porter: 1 },
     lamp: { runner: 1, wraith: 1, moth: 0.1, porter: 1.35 },
     coil: { runner: 1, wraith: 0.8, moth: 1.9, porter: 0.2 },
-    signal: { runner: 0.5, wraith: 2.5, moth: 0.1, porter: 0.2 }
+    signal: { runner: 0.5, wraith: 2.5, moth: 0.1, porter: 0.2 },
+    projector: { runner: 2.2, wraith: 0.75, moth: 0.8, porter: 0.8 }
 };

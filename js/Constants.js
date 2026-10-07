@@ -2,7 +2,7 @@
 // the other modules read these globals. Edited by the editor (_utils/editor): the server
 // patches only lines of the form `const NAME = <number>;` — keep values as numeric
 // literals (colors — 0xRRGGBB); the editor won't touch a formula.
-const GAME_VERSION = '0.3.1'; // build version: ?v= on scripts (tools/build.mjs) and the archive name
+const GAME_VERSION = '0.4.0'; // build version: ?v= on scripts (tools/build.mjs) and the archive name
 
 // localStorage shim: in a sandbox iframe and when site data is blocked, direct access throws SecurityError.
 // All storage access goes through Store only.
@@ -56,7 +56,11 @@ const TERRAIN_CELL = 8;                 // px: terrain grid step (mobile — no 
 
 // --- MODELS (Gltf3D.js) and UI (UI.js) ---
 const MODEL_CLIP_BLEND_SEC = 0.2;       // s: cross-fade between animation clips of a .glb model (idle -> run); 0 — instant
-const UI_REF_HEIGHT = 720;              // px: the screen height the UI layout (UILayout.js) is drawn for; the UI scales with the screen height, 0 — no scaling
+const UI_REF_HEIGHT = 720;              // px: the screen height the UI layout (UILayout.js) is drawn for; narrow screens also cap the scale by the controls panel width; 0 — no scaling
+const UI_SIDE_MARGIN_PX = 16;           // CSS px: minimum side clearance around the centered controls panel on narrow screens
+const TD_START_PREP_SECONDS = 6;         // s: time to place the first towers after choosing a deck
+const TD_OVERVIEW_ZOOM_PHONE = 0.28;     // full-route fixed isometric view on portrait phones
+const TD_OVERVIEW_ZOOM_DESKTOP = 0.72;   // full-route fixed isometric view on desktop
 
 // --- SOUND (Sound3D.js): channel volumes; a sound with a place on the map is heard from where
 // the CAMERA is — its audible region is a sphere of AUDIO_FALLOFF_MAX around it ---
@@ -80,7 +84,7 @@ const CAMERA_AZIMUTH_DEG = -50;         // isometric street view
 const CAMERA_PITCH_DEG = 48;            // readable isometric street view
 const CAMERA_ZOOM = 1.08;               // starting zoom: PC and tablets
 const CAMERA_ZOOM_MOBILE = 0.91;        // starting zoom: phones
-const CAMERA_ZOOM_MIN = 0.42;           // minimum zoom
+const CAMERA_ZOOM_MIN = 0.26;           // minimum zoom; portrait overview must show the whole route
 const CAMERA_ZOOM_MAX = 3;              // won't zoom in closer
 const CAMERA_ZOOM_WHEEL_STEP = 0.12;    // fraction of zoom per one wheel notch
 const CAMERA_ZOOM_LERP = 0.18;          // zoom smoothing: fraction of the remainder per frame

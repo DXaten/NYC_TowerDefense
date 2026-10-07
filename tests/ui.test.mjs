@@ -23,6 +23,25 @@ test('якорь: x и y идут от точки экрана к той же т
   assert.deepEqual({ ...UI.resolve({ anchor: 'мусор', x: 7, y: 8 }, w, h, W, H) }, { left: 7, top: 8 }, 'негодный якорь — top-left');
 });
 
+test('на вертикальном телефоне нижняя панель сохраняет боковые отступы, на ПК масштаб идёт по высоте', () => {
+  const sized = loadScripts(['js/Constants.js', 'js/UILayout.js', 'js/UI.js']);
+  const ui = sized.get('UI');
+  ui.layout = sized.get('UI_LAYOUT');
+  const controls = ui.layout.find(d => d.id === 'controls');
+  const minMargin = sized.get('UI_SIDE_MARGIN_PX');
+
+  for (const [width, height] of [[390, 844], [360, 780], [320, 900]]) {
+    ui.canvas = { clientWidth: width, clientHeight: height };
+    const scale = ui.scale();
+    assert.ok(scale <= height / sized.get('UI_REF_HEIGHT'), 'height remains an upper bound');
+    assert.ok((width - controls.w * scale) / 2 >= minMargin - 1e-6,
+      `${width}×${height}: controls panel keeps ${minMargin}px on both sides`);
+  }
+
+  ui.canvas = { clientWidth: 1440, clientHeight: 900 };
+  assert.equal(ui.scale(), 900 / sized.get('UI_REF_HEIGHT'), 'wide PC layout still follows height');
+});
+
 test('смена якоря не двигает элемент: toStored обратна resolve для всех 9 якорей', () => {
   const W = 1000, H = 600, w = 120, h = 40, left = 333, top = 222;
   for (const anchor of UI.ANCHORS) {
